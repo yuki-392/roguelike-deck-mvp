@@ -271,6 +271,12 @@ class PixelRenderer implements Renderer { ... }  // 後でこれに差し替え
 
 ---
 
+## 運用・デプロイ整備
+
+- [x] Vercelの依存関係インストールとビルドコマンドを明示する
+
+---
+
 ## MVP完成基準（SPEC.md §33）
 
 以下をすべて満たせばMVP完成とする。
