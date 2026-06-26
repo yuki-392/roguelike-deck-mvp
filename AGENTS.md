@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-このファイルはClaude Codeがプロジェクトを理解するためのガイドです。
+このファイルはCodexがプロジェクトを理解するためのガイドです。
 
 ## プロジェクト概要
 
@@ -105,7 +105,7 @@ src/
 ├── save/
 │   └── saveData.ts        # セーブ・ロード（localStorage）
 └── main.ts
-.claude/
+.Codex/
 ├── agents/        # サブエージェント定義
 ├── commands/      # スラッシュコマンド
 ├── plans/         # Plannerの出力（実装計画）
@@ -131,10 +131,6 @@ src/
 - 設計が必要 → `planner` エージェントに依頼
 - 実装だけしたい → `generator` エージェントに依頼
 - コードレビューしたい → `evaluator` エージェントに依頼
-
-## コードレビュー
-
-ファイルの新規作成・編集を伴う実装作業が完了したら、必ず `/code-review` を実行すること。
 
 ## 言語・コミュニケーション
 
