@@ -19,3 +19,16 @@ test("Vercel build settings are checked in", async () => {
   assert.equal(vercelConfig.buildCommand, "npm run build");
   assert.equal(vercelConfig.outputDirectory, "dist");
 });
+
+test("repository root Vercel settings publish the app subdirectory", async () => {
+  const vercelConfig = await readJson(
+    new URL("../../vercel.json", import.meta.url),
+  );
+
+  assert.equal(vercelConfig.installCommand, "cd roguelike-deck && npm ci");
+  assert.equal(
+    vercelConfig.buildCommand,
+    "cd roguelike-deck && npm run build",
+  );
+  assert.equal(vercelConfig.outputDirectory, "roguelike-deck/dist");
+});

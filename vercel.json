@@ -1,0 +1,5 @@
+{
+  "installCommand": "cd roguelike-deck && npm ci",
+  "buildCommand": "cd roguelike-deck && npm run build",
+  "outputDirectory": "roguelike-deck/dist"
+}
