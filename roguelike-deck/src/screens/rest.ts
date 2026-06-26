@@ -42,7 +42,7 @@ export function renderRestScreen(
   const healBtn = document.createElement("button");
   healBtn.type = "button";
   healBtn.id = "rest-heal-btn";
-  healBtn.textContent = "HP を回復する（+20）";
+  healBtn.textContent = "HP を回復する（最大HPの20%）";
 
   const healHandler = () => {
     callbacks.onSelectRest("heal");

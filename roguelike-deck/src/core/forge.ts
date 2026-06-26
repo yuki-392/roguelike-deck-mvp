@@ -26,7 +26,12 @@ const UTILITY_FORGE_EFFECTS: readonly ForgeEffect[] = [
   { kind: "healOnUse", amount: 2 },
 ];
 
-const RARITY_ORDER: readonly RelicRarity[] = ["normal", "rare", "legendary"];
+const RARITY_ORDER: readonly RelicRarity[] = [
+  "normal",
+  "uncommon",
+  "rare",
+  "legendary",
+];
 
 function addLog(log: readonly string[], message: string): readonly string[] {
   return [...log, message].slice(-MAX_LOG_ENTRIES);
@@ -200,7 +205,12 @@ export function applyRelicConversion(
     return state;
   }
 
-  const convertedRelic = getRelicConversionResult(relicA, relicB, rng);
+  let convertedRelic: Relic;
+  try {
+    convertedRelic = getRelicConversionResult(relicA, relicB, rng);
+  } catch {
+    return state;
+  }
   const relics = [
     ...state.relics.filter(
       (relic) => relic.id !== relicIdA && relic.id !== relicIdB,

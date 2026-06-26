@@ -47,6 +47,15 @@ function battleState() {
   };
 }
 
+function allPlayerCards(state) {
+  return [
+    ...state.player.deck,
+    ...state.player.hand,
+    ...state.player.discard,
+    ...state.player.exhaust,
+  ];
+}
+
 // ---- T1-T3: 型・データのスモークテスト ----
 
 test("SLIME_ORB has the expected shape", () => {
@@ -295,14 +304,40 @@ test("startRun locks the original card enemy slot", () => {
     originalCard,
     rng,
   );
-  const allCards = [
-    ...state.player.deck,
-    ...state.player.hand,
-    ...state.player.discard,
-  ];
+  const allCards = allPlayerCards(state);
   const inDeck = allCards.find((c) => c.id === "orig-lock");
+  const attackCards = allCards.filter((card) => card.name === "攻撃");
+
+  assert.equal(allCards.length, 10);
+  assert.equal(attackCards.length, 4);
   assert.ok(inDeck !== undefined, "original card should be in deck");
   assert.equal(inDeck.enemySlot.kind, "locked");
+});
+
+test("startRun adds an extra Attack card when no original card is brought", () => {
+  const state = battle.startRun(
+    { startingDeckType: "balanced", originalCardId: null, trialLevel: 0 },
+    null,
+    rng,
+  );
+  const allCards = allPlayerCards(state);
+  const attackCards = allCards.filter((card) => card.name === "攻撃");
+
+  assert.equal(allCards.length, 10);
+  assert.equal(attackCards.length, 5);
+});
+
+test("startRun adds Attack as fallback for combo deck too", () => {
+  const state = battle.startRun(
+    { startingDeckType: "combo", originalCardId: null, trialLevel: 0 },
+    null,
+    rng,
+  );
+  const allCards = allPlayerCards(state);
+  const attackCards = allCards.filter((card) => card.name === "攻撃");
+
+  assert.equal(allCards.length, 10);
+  assert.equal(attackCards.length, 1);
 });
 
 test("startRun initializes codexState with slime entry", () => {

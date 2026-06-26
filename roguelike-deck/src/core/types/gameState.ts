@@ -78,6 +78,7 @@ export interface RunState {
   readonly potions: readonly Potion[]; // 所持ポーション（上限2。Player ではなくここで管理し、部屋移動後も保持）
   readonly codexState: CodexState; // 敵図鑑ポイント（ラン開始時に PersistentData から復元）
   readonly acquiredOrbIds: readonly string[]; // 入手済みエネミーオーブID
+  readonly discoveredCardNames: ReadonlySet<string>; // 使用済みカード名（ラン開始時に PersistentData から復元）
   readonly encounteredEnemyIds: ReadonlySet<string>; // 初遭遇判定用（このランで遭遇済みの敵ID）
   readonly lastBattleDamageReceived: number; // 今バトルでプレイヤーが受けたダメージ合計（ノーダメ撃破判定用）
   readonly trialLevel: 0 | 1; // 試練レベル（RunConfig から引き継ぎ）

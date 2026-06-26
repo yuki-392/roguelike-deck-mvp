@@ -10,6 +10,26 @@ let workshop;
 
 const rng = () => 0;
 
+const TEST_NORMAL_RELIC = {
+  id: "test-normal-relic",
+  name: "テスト通常遺物",
+  deckType: "balanced",
+  effect: { kind: "firstTurnFirstAttackBonus", amount: 1 },
+  description: "",
+  rarity: "normal",
+  isStarter: false,
+};
+
+const TEST_UNCOMMON_RELIC = {
+  id: "test-uncommon-relic",
+  name: "テストアンコモン遺物",
+  deckType: "combo",
+  effect: { kind: "firstTurnMultiAttackFollowUpBonus", amount: 1 },
+  description: "",
+  rarity: "uncommon",
+  isStarter: false,
+};
+
 before(async () => {
   const [loadedBattle, loadedCards, loadedForge, loadedRelics, loadedWorkshop] =
     await Promise.all([
@@ -155,30 +175,30 @@ test("getConvertibleRelics excludes starter relics", () => {
     relics: [
       relics.ANCIENT_EMBLEM,
       relics.SMALL_GEAR,
-      relics.RENEWAL_CHARM,
-      relics.WAR_HORN,
+      TEST_NORMAL_RELIC,
+      TEST_UNCOMMON_RELIC,
     ],
   };
 
   assert.deepEqual(
     forge.getConvertibleRelics(prepared).map((relic) => relic.id),
-    [relics.RENEWAL_CHARM.id, relics.WAR_HORN.id],
+    [TEST_NORMAL_RELIC.id, TEST_UNCOMMON_RELIC.id],
   );
 });
 
-test("two normal relics convert into a random rare non-starter relic", () => {
-  const normalA = { ...relics.RENEWAL_CHARM, id: "normal-a" };
-  const normalB = { ...relics.RENEWAL_CHARM, id: "normal-b" };
+test("relic conversion result reports no candidates when only starter relics exist", () => {
+  const normalA = { ...TEST_NORMAL_RELIC, id: "normal-a" };
+  const normalB = { ...TEST_NORMAL_RELIC, id: "normal-b" };
 
-  const result = forge.getRelicConversionResult(normalA, normalB, rng);
-
-  assert.equal(result.rarity, "rare");
-  assert.equal(result.isStarter, false);
+  assert.throws(
+    () => forge.getRelicConversionResult(normalA, normalB, rng),
+    /候補がありません/,
+  );
 });
 
-test("applyRelicConversion consumes two relics and adds one result immutably", () => {
-  const normalA = { ...relics.RENEWAL_CHARM, id: "normal-a" };
-  const normalB = { ...relics.RENEWAL_CHARM, id: "normal-b" };
+test("applyRelicConversion is a no-op when no conversion candidates exist", () => {
+  const normalA = { ...TEST_NORMAL_RELIC, id: "normal-a" };
+  const normalB = { ...TEST_NORMAL_RELIC, id: "normal-b" };
   const state = createForgeState();
   const prepared = {
     ...state,
@@ -192,47 +212,31 @@ test("applyRelicConversion consumes two relics and adds one result immutably", (
     rng,
   );
 
-  assert.equal(next.relics.length, 2);
-  assert.equal(next.relics[0].id, relics.ANCIENT_EMBLEM.id);
-  assert.equal(next.relics[1].rarity, "rare");
-  assert.deepEqual(
-    prepared.relics.map((relic) => relic.id),
-    [relics.ANCIENT_EMBLEM.id, normalA.id, normalB.id],
-  );
-  assert.equal(next.phase, "map");
+  assert.equal(next, prepared);
 });
 
-test("the two currently available non-starter relics can be converted", () => {
+test("only starter relics leave relic conversion unavailable", () => {
   const state = createForgeState();
   const prepared = {
     ...state,
-    relics: [relics.RENEWAL_CHARM, relics.WAR_HORN],
+    relics: relics.ALL_RELICS,
   };
 
-  const next = forge.applyRelicConversion(
-    prepared,
-    relics.RENEWAL_CHARM.id,
-    relics.WAR_HORN.id,
-    rng,
-  );
-
-  assert.equal(next.relics.length, 1);
-  assert.equal(next.relics[0].isStarter, false);
-  assert.equal(next.phase, "map");
+  assert.deepEqual(forge.getConvertibleRelics(prepared), []);
 });
 
 test("applyRelicConversion rejects starter, duplicate, and missing materials", () => {
   const state = createForgeState();
   const prepared = {
     ...state,
-    relics: [relics.ANCIENT_EMBLEM, relics.RENEWAL_CHARM, relics.WAR_HORN],
+    relics: [relics.ANCIENT_EMBLEM, TEST_NORMAL_RELIC, TEST_UNCOMMON_RELIC],
   };
 
   assert.equal(
     forge.applyRelicConversion(
       prepared,
       relics.ANCIENT_EMBLEM.id,
-      relics.RENEWAL_CHARM.id,
+      TEST_NORMAL_RELIC.id,
       rng,
     ),
     prepared,
@@ -240,8 +244,8 @@ test("applyRelicConversion rejects starter, duplicate, and missing materials", (
   assert.equal(
     forge.applyRelicConversion(
       prepared,
-      relics.RENEWAL_CHARM.id,
-      relics.RENEWAL_CHARM.id,
+      TEST_NORMAL_RELIC.id,
+      TEST_NORMAL_RELIC.id,
       rng,
     ),
     prepared,
@@ -249,7 +253,7 @@ test("applyRelicConversion rejects starter, duplicate, and missing materials", (
   assert.equal(
     forge.applyRelicConversion(
       prepared,
-      relics.RENEWAL_CHARM.id,
+      TEST_NORMAL_RELIC.id,
       "missing",
       rng,
     ),

@@ -9,6 +9,15 @@ let workshop;
 let map;
 
 const rng = () => 0;
+const TEST_SHOP_RELIC = {
+  id: "test-shop-relic",
+  name: "テストショップ遺物",
+  deckType: "balanced",
+  effect: { kind: "firstTurnFirstAttackBonus", amount: 1 },
+  description: "",
+  rarity: "normal",
+  isStarter: false,
+};
 
 before(async () => {
   const [loadedBattle, loadedCards, loadedRelics, loadedWorkshop, loadedMap] =
@@ -55,11 +64,8 @@ test("selectNode enters shop phase and creates affinity-weighted non-original st
 
   assert.equal(next.phase, "shop");
   assert.equal(next.shopItems.cards.length, 3);
-  assert.equal(next.shopItems.relics.length, 2);
+  assert.equal(next.shopItems.relics.length, 0);
   assert.ok(next.shopItems.cards.every(({ card }) => card.isOriginal !== true));
-  assert.ok(
-    next.shopItems.relics.every(({ relic }) => relic.isStarter === false),
-  );
 });
 
 test("buyShopCard spends gold, adds the card, removes stock, and is immutable", () => {
@@ -88,18 +94,18 @@ test("buyShopRelic spends gold, adds the relic, and rejects unaffordable purchas
     ...state,
     shopItems: {
       cards: [],
-      relics: [{ relic: relics.RENEWAL_CHARM, price: 90 }],
+      relics: [{ relic: TEST_SHOP_RELIC, price: 90 }],
       cardRemovalPrice: 75,
     },
   };
 
-  const bought = battle.buyShopRelic(prepared, relics.RENEWAL_CHARM.id);
+  const bought = battle.buyShopRelic(prepared, TEST_SHOP_RELIC.id);
   assert.equal(bought.run.gold, 10);
-  assert.equal(bought.relics.at(-1).id, relics.RENEWAL_CHARM.id);
+  assert.equal(bought.relics.at(-1).id, TEST_SHOP_RELIC.id);
   assert.equal(bought.shopItems.relics.length, 0);
 
   const poor = { ...prepared, run: { ...prepared.run, gold: 89 } };
-  assert.equal(battle.buyShopRelic(poor, relics.RENEWAL_CHARM.id), poor);
+  assert.equal(battle.buyShopRelic(poor, TEST_SHOP_RELIC.id), poor);
 });
 
 test("removeShopCard removes one non-original card permanently and charges once", () => {

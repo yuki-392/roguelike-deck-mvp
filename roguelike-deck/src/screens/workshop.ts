@@ -534,6 +534,7 @@ export function renderWorkshopScreen(
         currentData.acquiredOrbIds,
       ),
       acquiredOrbIds: currentData.acquiredOrbIds,
+      discoveredCardNames: new Set(currentData.discoveredCardNames),
     };
     codexCleanup = renderCodexOverlay(container, viewData, () => {
       if (codexCleanup !== null) {

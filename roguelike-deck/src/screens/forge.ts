@@ -23,6 +23,7 @@ type ButtonHandler = {
 
 const RARITY_LABELS = {
   normal: "通常",
+  uncommon: "アンコモン",
   rare: "レア",
   legendary: "伝説",
 } as const;

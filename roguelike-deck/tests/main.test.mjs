@@ -28,3 +28,35 @@ test("onBuyShopPotion buys by item index and renders the updated state", async (
   assert.ok(callback);
   assert.match(callback[1], /buyShopPotion\(state,\s*itemIndex\)/);
 });
+
+test("onReturnToTitle persists discovered card names from the active run", async () => {
+  const source = await readFile(
+    new URL("../src/main.ts", import.meta.url),
+    "utf8",
+  );
+  const callback = source.match(
+    /onReturnToTitle:\s*\(\)\s*=>\s*\{([\s\S]*?)\n\s*\},/,
+  );
+
+  assert.ok(callback);
+  assert.match(
+    callback[1],
+    /discoveredCardNames:\s*Array\.from\(state\.run\.discoveredCardNames\)/,
+  );
+});
+
+test("onGoToCodex passes discovered card names to the codex overlay", async () => {
+  const source = await readFile(
+    new URL("../src/main.ts", import.meta.url),
+    "utf8",
+  );
+  const callback = source.match(
+    /onGoToCodex:\s*\(\)\s*=>\s*\{([\s\S]*?)\n\s*\},/,
+  );
+
+  assert.ok(callback);
+  assert.match(
+    callback[1],
+    /discoveredCardNames:\s*new Set\(persistentData\.discoveredCardNames\)/,
+  );
+});

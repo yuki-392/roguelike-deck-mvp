@@ -10,6 +10,7 @@ import {
 export interface CodexViewData {
   readonly codexState: CodexState;
   readonly acquiredOrbIds: readonly string[];
+  readonly discoveredCardNames: ReadonlySet<string>;
 }
 
 const GAUGE_WIDTH = 10;
@@ -35,12 +36,17 @@ export function renderCodexOverlay(
 
   const panel = document.createElement("div");
   panel.style.cssText =
-    "background:#1a1a2e;border:1px solid #444;padding:24px;min-width:320px;max-width:480px;border-radius:4px;";
+    "background:#1a1a2e;border:1px solid #444;padding:24px;min-width:320px;max-width:560px;max-height:80vh;overflow:auto;border-radius:4px;";
 
   const title = document.createElement("h2");
-  title.textContent = "敵図鑑";
+  title.textContent = "図鑑";
   title.style.margin = "0 0 16px";
   panel.appendChild(title);
+
+  const enemyTitle = document.createElement("h3");
+  enemyTitle.textContent = "敵図鑑";
+  enemyTitle.style.margin = "0 0 12px";
+  panel.appendChild(enemyTitle);
 
   if (ALL_ORBS.length === 0) {
     const empty = document.createElement("p");
@@ -81,18 +87,54 @@ export function renderCodexOverlay(
     }
   }
 
+  const cardTitle = document.createElement("h3");
+  cardTitle.textContent = "カード図鑑";
+  cardTitle.style.margin = "20px 0 12px";
+  panel.appendChild(cardTitle);
+
+  const discoveredCardNames = [...data.discoveredCardNames].sort((a, b) =>
+    a.localeCompare(b, "ja"),
+  );
+
+  if (discoveredCardNames.length === 0) {
+    const empty = document.createElement("p");
+    empty.textContent = "まだ登録されたカードがありません。";
+    empty.style.color = "#888";
+    panel.appendChild(empty);
+  } else {
+    const cardList = document.createElement("div");
+    cardList.style.cssText =
+      "display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;";
+
+    for (const cardName of discoveredCardNames) {
+      const cardEl = document.createElement("div");
+      cardEl.style.cssText =
+        "border:1px solid #333;padding:8px;background:#111827;border-radius:4px;";
+      cardEl.textContent = cardName;
+      cardList.appendChild(cardEl);
+    }
+
+    panel.appendChild(cardList);
+  }
+
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
   closeBtn.textContent = "閉じる";
   closeBtn.style.marginTop = "8px";
-  closeBtn.addEventListener("click", onClose);
+
+  const handleClose = () => {
+    overlay.remove();
+    onClose();
+  };
+
+  closeBtn.addEventListener("click", handleClose);
   panel.appendChild(closeBtn);
 
   overlay.appendChild(panel);
   container.appendChild(overlay);
 
   return () => {
-    closeBtn.removeEventListener("click", onClose);
+    closeBtn.removeEventListener("click", handleClose);
     overlay.remove();
   };
 }

@@ -15,20 +15,25 @@ import {
   lockEnemySlot,
   unlockOrb,
 } from "./codex";
+import {
+  buildDiscoveredCardNames,
+  registerCardUsage,
+} from "./card-codex";
 import { getOrbById } from "./data/orbData";
 import { shuffleArray, type RngFn } from "./rng";
 import {
   createStarterDeck,
   createComboDeck,
+  createFallbackAttackCard,
   createRewardPool,
   createEvolvedCard,
   upgradeCard,
 } from "./data/cards";
 import {
   ANCIENT_EMBLEM,
+  BLACK_VIAL,
+  CRACKED_SHIELD,
   SMALL_GEAR,
-  ANCIENT_EMBLEM_BLOCK,
-  SMALL_GEAR_DAMAGE,
   ALL_RELICS,
 } from "./data/relics";
 import {
@@ -54,8 +59,8 @@ const MAX_LOG_ENTRIES = 20;
 const REWARD_GOLD_MIN = 10;
 const REWARD_GOLD_MAX = 20;
 
-// 休憩所での HP 回復量（named constant）
-const REST_HEAL_AMOUNT = 20;
+// 休憩所での HP 回復割合（最大HPの20%）
+const REST_HEAL_RATIO = 0.2;
 const SHOP_CARD_COUNT = 3;
 const SHOP_RELIC_COUNT = 2;
 const SHOP_CARD_REMOVAL_PRICE = 75;
@@ -370,6 +375,8 @@ function getRelicShopPrice(relic: Relic): number {
   switch (relic.rarity) {
     case "normal":
       return 90;
+    case "uncommon":
+      return 115;
     case "rare":
       return 140;
     case "legendary":
@@ -461,6 +468,56 @@ function getEnergyCost(cost: CardCost): number {
   }
 }
 
+function isFirstBattleTurn(state: GameState): boolean {
+  return state.enemy.battleTurn === 0;
+}
+
+function getFirstAttackRelics(state: GameState): readonly Relic[] {
+  if (!isFirstBattleTurn(state) || state.attackCardsPlayedThisTurn > 0) {
+    return [];
+  }
+
+  return state.relics.filter(
+    (relic) => relic.effect.kind === "firstTurnFirstAttackBonus",
+  );
+}
+
+function getMultiAttackFollowUpRelics(state: GameState): readonly Relic[] {
+  if (!isFirstBattleTurn(state)) return [];
+
+  return state.relics.filter(
+    (relic) => relic.effect.kind === "firstTurnMultiAttackFollowUpBonus",
+  );
+}
+
+function sumRelicEffectAmounts(
+  relics: readonly Relic[],
+  kind: "firstTurnFirstAttackBonus" | "firstTurnMultiAttackFollowUpBonus",
+): number {
+  return relics.reduce(
+    (sum, relic) =>
+      relic.effect.kind === kind ? sum + relic.effect.amount : sum,
+    0,
+  );
+}
+
+function addRelicActivationLog(
+  state: GameState,
+  relics: readonly Relic[],
+  message: (relic: Relic) => string,
+): GameState {
+  if (relics.length === 0) return state;
+
+  return {
+    ...state,
+    log: relics.reduce(
+      (log, relic) => addLog(log, `【${relic.name}】${message(relic)}`),
+      state.log,
+    ),
+    run: addStats(state.run, { relicEffectCount: relics.length }),
+  };
+}
+
 /**
  * CardEffect を適用して state を更新する
  */
@@ -469,19 +526,16 @@ function applyEffect(
   effect: CardEffect,
   rng: RngFn,
 ): GameState {
-  // 遺物による攻撃ダメージボーナス（石など）を合算する
-  const relicAttackBonus = state.relics.reduce(
-    (sum, relic) =>
-      relic.effect.kind === "attackCardDamageBonus"
-        ? sum + relic.effect.amount
-        : sum,
-    0,
+  const firstAttackRelics = getFirstAttackRelics(state);
+  const firstAttackRelicBonus = sumRelicEffectAmounts(
+    firstAttackRelics,
+    "firstTurnFirstAttackBonus",
   );
 
   switch (effect.kind) {
     case "attack": {
       const attackTotal =
-        effect.amount + state.attackBonusThisTurn + relicAttackBonus;
+        effect.amount + state.attackBonusThisTurn + firstAttackRelicBonus;
       const oldEnemyHp = state.enemy.currentHp;
       const { newHp, newBlock } = applyDamage(
         state.enemy.currentHp,
@@ -500,12 +554,20 @@ function applyEffect(
         state.log,
         `プレイヤーが${attackTotal}ダメージを与えた${bonusNote}。敵HP: ${newHp}`,
       );
-      return {
+      const nextState = {
         ...state,
         enemy: newEnemy,
         log: newLog,
         run: addStats(state.run, { totalDamageDealt: damageDealt }),
       };
+      return addRelicActivationLog(
+        nextState,
+        firstAttackRelics,
+        (relic) =>
+          relic.effect.kind === "firstTurnFirstAttackBonus"
+            ? `1ターン目の最初の攻撃カードを+${relic.effect.amount}した。`
+            : "",
+      );
     }
 
     case "block": {
@@ -558,11 +620,20 @@ function applyEffect(
     }
 
     case "multiAttack": {
-      // attackBonusThisTurn・遺物ボーナスは各ヒットのベースに加算（ヒット数倍にはならない）
-      const hitDamage =
-        effect.amount + state.attackBonusThisTurn + relicAttackBonus;
+      const followUpRelics = getMultiAttackFollowUpRelics(state);
+      const followUpRelicBonus = sumRelicEffectAmounts(
+        followUpRelics,
+        "firstTurnMultiAttackFollowUpBonus",
+      );
+      let didLogFirstAttackRelics = false;
+      let didLogFollowUpRelics = false;
       let newState = state;
       for (let i = 0; i < effect.times; i++) {
+        const hitDamage =
+          effect.amount +
+          state.attackBonusThisTurn +
+          firstAttackRelicBonus +
+          (i > 0 ? followUpRelicBonus : 0);
         const oldHp = newState.enemy.currentHp;
         const { newHp, newBlock } = applyDamage(
           newState.enemy.currentHp,
@@ -586,6 +657,28 @@ function applyEffect(
           ),
           run: addStats(newState.run, { totalDamageDealt: damageDealt }),
         };
+        if (!didLogFirstAttackRelics) {
+          newState = addRelicActivationLog(
+            newState,
+            firstAttackRelics,
+            (relic) =>
+              relic.effect.kind === "firstTurnFirstAttackBonus"
+                ? `1ターン目の最初の攻撃カードを+${relic.effect.amount}した。`
+                : "",
+          );
+          didLogFirstAttackRelics = true;
+        }
+        if (i > 0 && !didLogFollowUpRelics) {
+          newState = addRelicActivationLog(
+            newState,
+            followUpRelics,
+            (relic) =>
+              relic.effect.kind === "firstTurnMultiAttackFollowUpBonus"
+                ? `1ターン目の複数回攻撃の2回目以降を+${relic.effect.amount}した。`
+                : "",
+          );
+          didLogFollowUpRelics = true;
+        }
         if (newHp <= 0) break;
       }
       return newState;
@@ -615,7 +708,7 @@ function applyEffect(
         effect.baseAmount +
         conditionalBonus +
         state.attackBonusThisTurn +
-        relicAttackBonus;
+        firstAttackRelicBonus;
       const oldEnemyHp = state.enemy.currentHp;
       const { newHp, newBlock } = applyDamage(
         state.enemy.currentHp,
@@ -632,12 +725,20 @@ function applyEffect(
         state.log,
         `プレイヤーが${total}ダメージを与えた${bonusNote}。敵HP: ${newHp}`,
       );
-      return {
+      const nextState = {
         ...state,
         enemy: newEnemy,
         log: newLog,
         run: addStats(state.run, { totalDamageDealt: damageDealt }),
       };
+      return addRelicActivationLog(
+        nextState,
+        firstAttackRelics,
+        (relic) =>
+          relic.effect.kind === "firstTurnFirstAttackBonus"
+            ? `1ターン目の最初の攻撃カードを+${relic.effect.amount}した。`
+            : "",
+      );
     }
 
     case "costReductionNextCard": {
@@ -690,10 +791,6 @@ function applyEffect(
 
 /**
  * 遺物効果を適用して GameState を更新する（exhaustive check）
- * - blockOnBattleStart: プレイヤーにブロックを付与する
- * - damageOnThirdCardPlayed: 敵にダメージを与える
- * - healOnTurnStart: プレイヤーの HP を最大 HP まで回復する
- * - strengthOnBattleStart: プレイヤーに strength を付与する
  * - relicEffectCount を RunStats にインクリメントする
  *
  * @param state 現在の GameState
@@ -706,13 +803,14 @@ function applyRelicEffect(
   relicName: string,
 ): GameState {
   switch (effect.kind) {
-    case "blockOnBattleStart": {
-      // バトル開始時にブロックを付与する
-      const newBlock = state.player.block + ANCIENT_EMBLEM_BLOCK;
+    case "blockOnTurnStartIfEmpty": {
+      if (state.player.block !== 0) return state;
+
+      const newBlock = state.player.block + effect.amount;
       const newPlayer = { ...state.player, block: newBlock };
       const newLog = addLog(
         state.log,
-        `【${relicName}】バトル開始時に${ANCIENT_EMBLEM_BLOCK}ブロックを得た。ブロック: ${newBlock}`,
+        `【${relicName}】ターン開始時に${effect.amount}ブロックを得た。ブロック: ${newBlock}`,
       );
       return {
         ...state,
@@ -722,68 +820,25 @@ function applyRelicEffect(
       };
     }
 
-    case "damageOnThirdCardPlayed": {
-      // 3枚目のカードプレイ時に敵にダメージを与える
-      const oldEnemyHp = state.enemy.currentHp;
-      const { newHp, newBlock } = applyDamage(
-        state.enemy.currentHp,
-        state.enemy.block,
-        SMALL_GEAR_DAMAGE,
-      );
-      const damageDealt = oldEnemyHp - newHp;
-      const newEnemy = { ...state.enemy, currentHp: newHp, block: newBlock };
-      const newLog = addLog(
-        state.log,
-        `【${relicName}】3枚目のカードプレイで敵に${SMALL_GEAR_DAMAGE}ダメージ！敵HP: ${newHp}`,
-      );
-      return {
-        ...state,
-        enemy: newEnemy,
-        log: newLog,
-        run: addStats(state.run, {
-          relicEffectCount: 1,
-          totalDamageDealt: damageDealt,
-        }),
-      };
-    }
-
-    case "healOnTurnStart": {
-      const oldHp = state.player.currentHp;
-      const newHp = Math.min(
-        state.player.maxHp,
-        state.player.currentHp + effect.amount,
-      );
-      const healedAmount = newHp - oldHp;
-      return {
-        ...state,
-        player: { ...state.player, currentHp: newHp },
-        log: addLog(
-          state.log,
-          `【${relicName}】ターン開始時にHPを${healedAmount}回復した。プレイヤーHP: ${newHp}`,
-        ),
-        run: addStats(state.run, { relicEffectCount: 1 }),
-      };
-    }
-
-    case "strengthOnBattleStart": {
+    case "poisonAllEnemiesOnBattleStart": {
       const result = addStatusStacks(
-        state.player.statuses,
-        { kind: "strength" },
+        state.enemy.statuses,
+        { kind: "poison" },
         effect.stacks,
       );
       return {
         ...state,
-        player: { ...state.player, statuses: result.statuses },
+        enemy: { ...state.enemy, statuses: result.statuses },
         log: addLog(
           state.log,
-          `【${relicName}】バトル開始時にstrengthを${effect.stacks}得た。（合計: ${result.totalStacks}）`,
+          `【${relicName}】戦闘開始時に敵へpoisonを${effect.stacks}付与した。（合計: ${result.totalStacks}）`,
         ),
         run: addStats(state.run, { relicEffectCount: 1 }),
       };
     }
 
-    case "attackCardDamageBonus":
-      // パッシブ効果: applyEffect 内の攻撃計算時に参照するため、ここでは何もしない
+    case "firstTurnFirstAttackBonus":
+    case "firstTurnMultiAttackFollowUpBonus":
       return state;
 
     default: {
@@ -805,10 +860,7 @@ function initBattleState(state: GameState): GameState {
   let newState = state;
 
   for (const relic of newState.relics) {
-    if (
-      relic.effect.kind === "blockOnBattleStart" ||
-      relic.effect.kind === "strengthOnBattleStart"
-    ) {
+    if (relic.effect.kind === "poisonAllEnemiesOnBattleStart") {
       newState = applyRelicEffect(newState, relic.effect, relic.name);
     }
   }
@@ -823,7 +875,7 @@ function applyTurnStartRelicEffects(state: GameState): GameState {
   let newState = state;
 
   for (const relic of newState.relics) {
-    if (relic.effect.kind === "healOnTurnStart") {
+    if (relic.effect.kind === "blockOnTurnStartIfEmpty") {
       newState = applyRelicEffect(newState, relic.effect, relic.name);
     }
   }
@@ -837,7 +889,7 @@ function applyTurnStartRelicEffects(state: GameState): GameState {
  * ラン開始時の初期 GameState を生成する
  * - RunConfig に基づいてデッキと初期遺物を選択する
  * - originalCard が非null なら9枚デッキの末尾に追加してから10枚でシャッフル
- * - originalCard が null なら9枚デッキのままシャッフル
+ * - originalCard が null なら「攻撃」を1枚追加して10枚でシャッフル
  * - 敵の初期状態をセット
  * - 遺物の戦闘開始効果を適用
  * - 最初に INITIAL_DRAW_COUNT 枚ドロー
@@ -850,16 +902,31 @@ export function startRun(
   persistentData?: {
     codexPoints: Record<string, number>;
     acquiredOrbIds: readonly string[];
+    discoveredCardNames: readonly string[];
   },
 ): GameState {
   // 開始デッキタイプに応じてデッキと初期遺物を選択
   const starterDeck =
-    config.startingDeckType === "balanced"
-      ? createStarterDeck()
-      : createComboDeck();
+    config.startingDeckType === "combo"
+      ? createComboDeck()
+      : createStarterDeck();
 
-  const starterRelic: Relic =
-    config.startingDeckType === "balanced" ? ANCIENT_EMBLEM : SMALL_GEAR;
+  const starterRelic: Relic = (() => {
+    switch (config.startingDeckType) {
+      case "balanced":
+        return ANCIENT_EMBLEM;
+      case "combo":
+        return SMALL_GEAR;
+      case "guardian":
+        return CRACKED_SHIELD;
+      case "erosion":
+        return BLACK_VIAL;
+      default: {
+        const _exhaustive: never = config.startingDeckType;
+        return _exhaustive;
+      }
+    }
+  })();
 
   // ラン開始時にオリジナルカードのエネミースロットを locked に変換
   const lockedOriginalCard =
@@ -869,7 +936,7 @@ export function startRun(
   const deckBeforeShuffle =
     lockedOriginalCard !== null
       ? [...starterDeck, lockedOriginalCard]
-      : starterDeck;
+      : [...starterDeck, createFallbackAttackCard()];
 
   const shuffledDeck = shuffleArray(deckBeforeShuffle, rng);
 
@@ -892,6 +959,9 @@ export function startRun(
   const codexPoints = persistentData?.codexPoints ?? {};
   const acquiredOrbIds = persistentData?.acquiredOrbIds ?? [];
   const initialCodexState = buildCodexState(codexPoints, acquiredOrbIds);
+  const discoveredCardNames = buildDiscoveredCardNames(
+    persistentData === undefined ? [] : persistentData.discoveredCardNames,
+  );
 
   // フロアマップを生成し RunState を初期化する
   const floorMap = generateFloorMap(rng);
@@ -911,6 +981,7 @@ export function startRun(
     potions: [],
     codexState: initialCodexState,
     acquiredOrbIds,
+    discoveredCardNames,
     encounteredEnemyIds: new Set<string>(),
     lastBattleDamageReceived: 0,
     trialLevel: config.trialLevel,
@@ -1033,6 +1104,11 @@ export function playCard(
     ...newState,
     log: addLog(newState.log, `プレイヤーが${card.name}をプレイした。`),
   };
+
+  // オリジナルカード以外は、使用時にカード図鑑へ登録する
+  if (!isOriginalCard(card)) {
+    newState = registerCardUsage(newState, card.name);
+  }
 
   // オリジナルカードのプレイを検出し originalCardUsedCount をインクリメント
   if (isOriginalCard(card)) {
@@ -1218,15 +1294,6 @@ export function playCard(
 
   if (isEvolveCard(card)) {
     newState = updateEvolveProgress(newState, card);
-  }
-
-  // 3枚目到達時に「小さな歯車」（damageOnThirdCardPlayed）を発火
-  if (newCardsPlayedThisTurn === 3) {
-    for (const relic of newState.relics) {
-      if (relic.effect.kind === "damageOnThirdCardPlayed") {
-        newState = applyRelicEffect(newState, relic.effect, relic.name);
-      }
-    }
   }
 
   // 勝敗判定
@@ -2059,16 +2126,18 @@ export function leaveRest(state: GameState): GameState {
 
 /**
  * 休憩所での HP 回復処理
- * player.currentHp を REST_HEAL_AMOUNT 回復してマップフェーズへ遷移する
+ * player.currentHp を最大HPの一定割合だけ回復してマップフェーズへ遷移する
  */
 export function healAtRest(state: GameState): GameState {
   // 休憩所フェーズ以外は何もしない
   if (state.phase !== "rest") return state;
 
+  const healAmount = Math.ceil(state.player.maxHp * REST_HEAL_RATIO);
   const newHp = Math.min(
     state.player.maxHp,
-    state.player.currentHp + REST_HEAL_AMOUNT,
+    state.player.currentHp + healAmount,
   );
+  const healedAmount = newHp - state.player.currentHp;
   const newPlayer = { ...state.player, currentHp: newHp };
 
   return {
@@ -2077,7 +2146,7 @@ export function healAtRest(state: GameState): GameState {
     phase: "map",
     log: addLog(
       state.log,
-      `休憩してHPを${REST_HEAL_AMOUNT}回復した。HP: ${newHp}`,
+      `休憩してHPを${healedAmount}回復した。HP: ${newHp}`,
     ),
   };
 }

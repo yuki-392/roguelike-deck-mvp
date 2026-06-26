@@ -34,6 +34,17 @@ export function getMaterializableCards(): readonly Card[] {
 }
 
 /**
+ * 図鑑で解放済みの素材化可能カード一覧を返す
+ */
+export function getUnlockedMaterializableCards(
+  discoveredCardNames: ReadonlySet<string>,
+): readonly Card[] {
+  return getMaterializableCards().filter((card) =>
+    discoveredCardNames.has(card.name),
+  );
+}
+
+/**
  * カードコストのエネルギー消費量を数値で返す
  */
 function getEnergyCostValue(cost: CardCost): number {

@@ -23,7 +23,7 @@ import {
 } from "./core/battle";
 import { applyForge, applyRelicConversion } from "./core/forge";
 import { defaultRng } from "./core/rng";
-import { getMaterializableCards } from "./core/workshop";
+import { getUnlockedMaterializableCards } from "./core/workshop";
 import {
   loadPersistentData,
   savePersistentData,
@@ -65,8 +65,15 @@ let persistentData = loadPersistentData();
   }
 }
 
-// 素材化可能カード一覧（起動時に一度だけ生成）
-const materializableCards = getMaterializableCards();
+/**
+ * 最新のカード図鑑解放状態を反映して工房を開く
+ */
+function openWorkshop(): void {
+  const unlockedCards = getUnlockedMaterializableCards(
+    new Set(persistentData.discoveredCardNames),
+  );
+  renderer.showWorkshop(persistentData, unlockedCards);
+}
 
 /**
  * GameState を更新し、試練レベル1勝利時の実績解放を行ってから描画する
@@ -113,7 +120,7 @@ renderer.init({
   // ---- タイトル画面コールバック ----
 
   onGoToWorkshop: () => {
-    renderer.showWorkshop(persistentData, materializableCards);
+    openWorkshop();
   },
 
   onGoToRunSetup: () => {
@@ -136,6 +143,7 @@ renderer.init({
         persistentData.acquiredOrbIds,
       ),
       acquiredOrbIds: persistentData.acquiredOrbIds,
+      discoveredCardNames: new Set(persistentData.discoveredCardNames),
     };
     renderCodexOverlay(document.body, viewData, () => {
       renderer.showTitle(persistentData);
@@ -153,6 +161,7 @@ renderer.init({
         ...persistentData,
         acquiredOrbIds: state.run.acquiredOrbIds,
         codexPoints,
+        discoveredCardNames: Array.from(state.run.discoveredCardNames),
       };
       savePersistentData(persistentData);
       state = null;
@@ -173,7 +182,7 @@ renderer.init({
     };
     savePersistentData(persistentData);
     // 工房画面を最新データで再描画する
-    renderer.showWorkshop(persistentData, materializableCards);
+    openWorkshop();
   },
 
   // 保存済みオリジナルカードをリネームする
@@ -181,7 +190,7 @@ renderer.init({
     persistentData = renameOriginalCard(persistentData, id, newName);
     savePersistentData(persistentData);
     // 工房画面を最新データで再描画する
-    renderer.showWorkshop(persistentData, materializableCards);
+    openWorkshop();
   },
 
   // 保存済みオリジナルカードを削除する
@@ -194,7 +203,7 @@ renderer.init({
     };
     savePersistentData(persistentData);
     // 工房画面を最新データで再描画する
-    renderer.showWorkshop(persistentData, materializableCards);
+    openWorkshop();
   },
 
   // オリジナルカードにオーブを装着する
@@ -202,14 +211,14 @@ renderer.init({
     if (!persistentData.acquiredOrbIds.includes(orbId)) return;
     persistentData = attachOrbToSavedCard(persistentData, cardId, orbId);
     savePersistentData(persistentData);
-    renderer.showWorkshop(persistentData, materializableCards);
+    openWorkshop();
   },
 
   // オリジナルカードからオーブを取り外す
   onDetachOrb: (cardId: string) => {
     persistentData = detachOrbFromSavedCard(persistentData, cardId);
     savePersistentData(persistentData);
-    renderer.showWorkshop(persistentData, materializableCards);
+    openWorkshop();
   },
 
   // ---- ラン準備画面コールバック ----

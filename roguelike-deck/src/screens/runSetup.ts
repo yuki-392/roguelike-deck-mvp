@@ -123,7 +123,7 @@ export function renderRunSetupScreen(
     const noneBtn = document.createElement("button");
     noneBtn.type = "button";
     noneBtn.className = "original-card-btn original-card-btn--selected";
-    noneBtn.textContent = "持ち込まない（9枚デッキ）";
+    noneBtn.textContent = "オリジナルカードを持ち込まない（攻撃 コスト:1を持ち込む）";
     noneBtn.dataset["cardId"] = "";
 
     const allOriginalBtns: HTMLButtonElement[] = [noneBtn];

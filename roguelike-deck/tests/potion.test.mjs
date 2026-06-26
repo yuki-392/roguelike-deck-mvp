@@ -17,7 +17,8 @@ before(async () => {
 });
 
 function createBattleState() {
-  return battle.startBattle(rng);
+  const state = battle.startBattle(rng);
+  return { ...state, relics: [] };
 }
 
 function withPotion(state, potion) {

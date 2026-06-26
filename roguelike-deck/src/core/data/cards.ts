@@ -423,6 +423,13 @@ export function createComboDeck(): readonly Card[] {
   ];
 }
 
+/**
+ * オリジナルカードを持ち込まないランで補充する基本攻撃カードを生成する。
+ */
+export function createFallbackAttackCard(): Card {
+  return { ...KOGEKI_CARD_BASE, id: nextCardId("kogeki") };
+}
+
 // upgradeCard での強化量（named constant）
 const UPGRADE_ATTACK_BONUS = 3; // 攻撃系カードの強化ダメージ増加量
 const UPGRADE_BLOCK_BONUS = 3; // 防御系カードの強化ブロック増加量

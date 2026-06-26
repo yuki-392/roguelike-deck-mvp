@@ -7,6 +7,26 @@ let cards;
 let relics;
 let screenModule;
 
+const TEST_RELIC_A = {
+  id: "test-relic-a",
+  name: "テスト遺物A",
+  deckType: "balanced",
+  effect: { kind: "firstTurnFirstAttackBonus", amount: 1 },
+  description: "",
+  rarity: "normal",
+  isStarter: false,
+};
+
+const TEST_RELIC_B = {
+  id: "test-relic-b",
+  name: "テスト遺物B",
+  deckType: "combo",
+  effect: { kind: "firstTurnMultiAttackFollowUpBonus", amount: 1 },
+  description: "",
+  rarity: "uncommon",
+  isStarter: false,
+};
+
 class FakeElement {
   constructor(tagName) {
     this.tagName = tagName;
@@ -149,11 +169,7 @@ test("card forge mode reports when no empty card slots exist", () => {
 test("relic conversion requires two materials and displays the converted relic", () => {
   const state = {
     ...createForgeState(),
-    relics: [
-      relics.ANCIENT_EMBLEM,
-      relics.RENEWAL_CHARM,
-      relics.WAR_HORN,
-    ],
+    relics: [relics.ANCIENT_EMBLEM, TEST_RELIC_A, TEST_RELIC_B],
   };
   const container = new FakeElement("div");
   const calls = [];
@@ -164,7 +180,7 @@ test("relic conversion requires two materials and displays the converted relic",
       onForgeCard: () => {},
       onConvertRelics: (relicIdA, relicIdB) => {
         calls.push([relicIdA, relicIdB]);
-        return relics.WAR_HORN;
+        return TEST_RELIC_B;
       },
       onCompleteForge: () => {},
     },
@@ -177,17 +193,15 @@ test("relic conversion requires two materials and displays the converted relic",
   assert.equal(confirm.disabled, true);
   assert.equal(findById(container, `forge-relic-${relics.ANCIENT_EMBLEM.id}`), null);
 
-  findById(container, `forge-relic-${relics.RENEWAL_CHARM.id}`).click();
+  findById(container, `forge-relic-${TEST_RELIC_A.id}`).click();
   assert.equal(confirm.disabled, true);
-  findById(container, `forge-relic-${relics.WAR_HORN.id}`).click();
+  findById(container, `forge-relic-${TEST_RELIC_B.id}`).click();
   assert.equal(confirm.disabled, false);
   confirm.click();
 
-  assert.deepEqual(calls, [
-    [relics.RENEWAL_CHARM.id, relics.WAR_HORN.id],
-  ]);
+  assert.deepEqual(calls, [[TEST_RELIC_A.id, TEST_RELIC_B.id]]);
   assert.match(
     findById(container, "forge-result").textContent,
-    new RegExp(relics.WAR_HORN.name),
+    new RegExp(TEST_RELIC_B.name),
   );
 });

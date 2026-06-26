@@ -13,6 +13,13 @@ const AFFINITY_WEIGHTS: Readonly<
     combo: 3,
     draw: 2,
   },
+  guardian: {
+    defense: 3,
+  },
+  erosion: {
+    poison: 3,
+    laceration: 2,
+  },
 };
 
 /**

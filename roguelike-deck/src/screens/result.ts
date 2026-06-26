@@ -10,6 +10,8 @@ import { ALL_ACHIEVEMENTS } from "../core/progression";
 const STARTING_DECK_LABELS: Record<string, string> = {
   balanced: "均衡型",
   combo: "連撃型",
+  guardian: "守護型",
+  erosion: "侵蝕型",
 };
 
 /**

@@ -4,8 +4,17 @@ import { runnerImport } from "vite";
 
 let battle;
 let cards;
-let relics;
 let screenModule;
+
+const TEST_SHOP_RELIC = {
+  id: "test-shop-relic",
+  name: "テストショップ遺物",
+  deckType: "balanced",
+  effect: { kind: "firstTurnFirstAttackBonus", amount: 1 },
+  description: "",
+  rarity: "normal",
+  isStarter: false,
+};
 
 class FakeElement {
   constructor(tagName) {
@@ -59,16 +68,14 @@ function findById(root, id) {
 }
 
 before(async () => {
-  const [loadedBattle, loadedCards, loadedRelics, loadedScreen] =
+  const [loadedBattle, loadedCards, loadedScreen] =
     await Promise.all([
       runnerImport("./src/core/battle.ts"),
       runnerImport("./src/core/data/cards.ts"),
-      runnerImport("./src/core/data/relics.ts"),
       runnerImport("./src/screens/shop.ts"),
     ]);
   battle = loadedBattle.module;
   cards = loadedCards.module;
-  relics = loadedRelics.module;
   screenModule = loadedScreen.module;
 });
 
@@ -91,7 +98,7 @@ test("shop screen disables unaffordable goods and invokes each shop callback", (
     },
     shopItems: {
       cards: [{ card, price: 40 }],
-      relics: [{ relic: relics.RENEWAL_CHARM, price: 90 }],
+      relics: [{ relic: TEST_SHOP_RELIC, price: 90 }],
       potions: [
         {
           potion: { id: "potion_heal_small", name: "小回復ポーション" },
@@ -117,10 +124,7 @@ test("shop screen disables unaffordable goods and invokes each shop callback", (
   );
 
   const cardButton = findById(container, `shop-card-${card.id}`);
-  const relicButton = findById(
-    container,
-    `shop-relic-${relics.RENEWAL_CHARM.id}`,
-  );
+  const relicButton = findById(container, `shop-relic-${TEST_SHOP_RELIC.id}`);
   const removeButton = findById(container, `shop-remove-${removable.id}`);
   assert.equal(cardButton.disabled, false);
   assert.equal(relicButton.disabled, true);

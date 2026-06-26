@@ -15,6 +15,7 @@ export interface PersistentData {
   readonly savedOriginalCards: readonly OriginalCard[];
   readonly acquiredOrbIds: readonly string[]; // 解放済みエネミーオーブID
   readonly codexPoints: Record<string, number>; // enemyId → 図鑑ポイント（Map は JSON 化できないため Record）
+  readonly discoveredCardNames: readonly string[]; // 使用済みカード名（Map/Set は JSON 化できないため配列）
   readonly unlockedAchievementIds: readonly AchievementId[]; // 解放済み実績ID
   readonly unlockedCardIds: readonly string[]; // 解放済みカードID
   readonly unlockedRelicIds: readonly string[]; // 解放済み遺物ID
@@ -26,6 +27,7 @@ const DEFAULT_PERSISTENT_DATA: PersistentData = {
   savedOriginalCards: [],
   acquiredOrbIds: [],
   codexPoints: {},
+  discoveredCardNames: [],
   unlockedAchievementIds: [],
   unlockedCardIds: [],
   unlockedRelicIds: [],
@@ -70,6 +72,14 @@ function isValidPersistentData(data: unknown): data is PersistentData {
     (typeof obj["codexPoints"] !== "object" ||
       obj["codexPoints"] === null ||
       Array.isArray(obj["codexPoints"]))
+  ) {
+    return false;
+  }
+  // discoveredCardNames（省略可：旧セーブデータ互換）
+  if (
+    obj["discoveredCardNames"] !== undefined &&
+    (!Array.isArray(obj["discoveredCardNames"]) ||
+      !obj["discoveredCardNames"].every((name) => typeof name === "string"))
   ) {
     return false;
   }

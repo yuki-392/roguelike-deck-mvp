@@ -20,7 +20,8 @@ before(async () => {
 });
 
 function createBattleState() {
-  return battle.startBattle(rng);
+  const state = battle.startBattle(rng);
+  return { ...state, relics: [] };
 }
 
 function withCardInHand(state, card) {
@@ -646,13 +647,13 @@ test("lightweight requires no battle effect and discards normally", () => {
 });
 
 test("all relics define rarity and starter conversion metadata", () => {
-  const validRarities = new Set(["normal", "rare", "legendary"]);
+  const validRarities = new Set(["normal", "uncommon", "rare", "legendary"]);
 
-  assert.equal(relics.ANCIENT_EMBLEM.rarity, "normal");
+  assert.equal(relics.ANCIENT_EMBLEM.rarity, "uncommon");
   assert.equal(relics.ANCIENT_EMBLEM.isStarter, true);
-  assert.equal(relics.SMALL_GEAR.rarity, "normal");
+  assert.equal(relics.SMALL_GEAR.rarity, "uncommon");
   assert.equal(relics.SMALL_GEAR.isStarter, true);
-  assert.ok(relics.ALL_RELICS.length >= 4);
+  assert.equal(relics.ALL_RELICS.length, 4);
 
   for (const relic of relics.ALL_RELICS) {
     assert.equal(validRarities.has(relic.rarity), true);
@@ -660,7 +661,7 @@ test("all relics define rarity and starter conversion metadata", () => {
   }
 });
 
-test("strengthOnBattleStart relic adds strength when entering battle", () => {
+test("black vial adds poison when entering battle", () => {
   const state = createBattleState();
   const battleNode = {
     id: "relic-test-battle",
@@ -670,7 +671,7 @@ test("strengthOnBattleStart relic adds strength when entering battle", () => {
   const prepared = {
     ...state,
     phase: "map",
-    relics: [relics.WAR_HORN],
+    relics: [relics.BLACK_VIAL],
     run: {
       ...state.run,
       map: {
@@ -683,8 +684,53 @@ test("strengthOnBattleStart relic adds strength when entering battle", () => {
 
   const next = battle.selectNode(prepared, battleNode.id, rng);
 
-  assert.equal(next.player.statuses.get("strength"), relics.WAR_HORN_STRENGTH);
-  assert.equal(prepared.player.statuses.get("strength"), undefined);
+  assert.equal(next.enemy.statuses.get("poison"), relics.BLACK_VIAL_POISON);
+  assert.equal(prepared.enemy.statuses.get("poison"), undefined);
+  assert.ok(next.log.some((entry) => entry.includes("【黒い小瓶】")));
+});
+
+test("ancient emblem boosts only the first attack card on the first turn", () => {
+  const attackCard = {
+    id: "first-attack",
+    name: "First Attack",
+    cost: { kind: "zero" },
+    effects: [{ kind: "attack", amount: 5 }],
+    rarity: "common",
+    description: "",
+  };
+  const state = withCardInHand(createBattleState(), attackCard);
+  const prepared = {
+    ...state,
+    relics: [relics.ANCIENT_EMBLEM],
+    enemy: { ...state.enemy, currentHp: 50, maxHp: 50, block: 0 },
+  };
+
+  const next = battle.playCard(prepared, attackCard.id, rng);
+
+  assert.equal(next.enemy.currentHp, 43);
+  assert.ok(next.log.some((entry) => entry.includes("【古びた紋章】")));
+});
+
+test("small gear boosts follow-up hits of first-turn multi attacks", () => {
+  const multiAttackCard = {
+    id: "gear-multi-attack",
+    name: "Gear Multi Attack",
+    cost: { kind: "zero" },
+    effects: [{ kind: "multiAttack", amount: 3, times: 2 }],
+    rarity: "common",
+    description: "",
+  };
+  const state = withCardInHand(createBattleState(), multiAttackCard);
+  const prepared = {
+    ...state,
+    relics: [relics.SMALL_GEAR],
+    enemy: { ...state.enemy, currentHp: 50, maxHp: 50, block: 0 },
+  };
+
+  const next = battle.playCard(prepared, multiAttackCard.id, rng);
+
+  assert.equal(next.enemy.currentHp, 43);
+  assert.ok(next.log.some((entry) => entry.includes("【小さな歯車】")));
 });
 
 test("floor three and later battle nodes spawn a random normal enemy", () => {
@@ -740,14 +786,14 @@ test("battle nodes before floor three keep using the starter enemy", () => {
   assert.notEqual(next.enemy.id, "armored-cultist");
 });
 
-test("healOnTurnStart relic heals each player turn without exceeding max HP", () => {
+test("cracked shield grants block on turn start only when block is empty", () => {
   const state = createBattleState();
   const prepared = {
     ...state,
-    relics: [relics.RENEWAL_CHARM],
+    relics: [relics.CRACKED_SHIELD],
     player: {
       ...state.player,
-      currentHp: state.player.maxHp - 1,
+      block: 0,
       hand: [],
       deck: [],
     },
@@ -762,8 +808,8 @@ test("healOnTurnStart relic heals each player turn without exceeding max HP", ()
 
   const next = battle.endPlayerTurn(prepared, rng);
 
-  assert.equal(next.player.currentHp, next.player.maxHp);
-  assert.equal(prepared.player.currentHp, prepared.player.maxHp - 1);
+  assert.equal(next.player.block, relics.CRACKED_SHIELD_BLOCK);
+  assert.ok(next.log.some((entry) => entry.includes("【ひび割れた盾】")));
   assert.equal(
     next.run.stats.relicEffectCount,
     prepared.run.stats.relicEffectCount + 1,
@@ -867,6 +913,43 @@ test("upgradeCardInDeck does not duplicate an existing display suffix", () => {
 
   assert.equal(next.player.deck[0].name, "攻撃+");
   assert.equal(next.player.deck[0].upgraded, true);
+});
+
+test("healAtRest heals 20 percent of max HP rounded up", () => {
+  const state = createBattleState();
+  const prepared = {
+    ...state,
+    phase: "rest",
+    player: {
+      ...state.player,
+      currentHp: 40,
+      maxHp: 95,
+    },
+  };
+
+  const next = battle.healAtRest(prepared);
+
+  assert.equal(next.phase, "map");
+  assert.equal(next.player.currentHp, 59);
+  assert.ok(next.log.some((entry) => entry.includes("HPを19回復")));
+});
+
+test("healAtRest does not exceed max HP", () => {
+  const state = createBattleState();
+  const prepared = {
+    ...state,
+    phase: "rest",
+    player: {
+      ...state.player,
+      currentHp: 92,
+      maxHp: 95,
+    },
+  };
+
+  const next = battle.healAtRest(prepared);
+
+  assert.equal(next.player.currentHp, 95);
+  assert.ok(next.log.some((entry) => entry.includes("HPを3回復")));
 });
 
 // ---- T3: pendingDiscard テスト ----
