@@ -28,16 +28,20 @@ function createBattleStateWithCard(card) {
       discard: [],
       exhaust: [],
     },
-    enemy: {
-      ...state.enemy,
-      currentHp: 999,
-      maxHp: 999,
-    },
+    enemies: [
+      {
+        ...state.enemies[0],
+        currentHp: 999,
+        maxHp: 999,
+      },
+    ],
   };
 }
 
 function replayDiscardedCard(state, cardId) {
-  const card = state.player.discard.find((candidate) => candidate.id === cardId);
+  const card = state.player.discard.find(
+    (candidate) => candidate.id === cardId,
+  );
   assert.ok(card);
   return {
     ...state,
@@ -101,8 +105,7 @@ test("use-count evolve card replaces the same card exactly at threshold", () => 
     .createRewardPool()
     .find(
       (card) =>
-        card.isEvolvable === true &&
-        card.evolveCondition.kind === "useCount",
+        card.isEvolvable === true && card.evolveCondition.kind === "useCount",
     );
   assert.ok(evolveCard);
 
@@ -154,9 +157,10 @@ test("status-applied evolve progress increases by matching status stacks only", 
 
   const state = createBattleStateWithCard(evolveCard);
   const next = battle.playCard(state, evolveCard.id, rng);
-  const expectedProgress = matchingStacks >= evolveCard.evolveCondition.threshold
-    ? undefined
-    : matchingStacks;
+  const expectedProgress =
+    matchingStacks >= evolveCard.evolveCondition.threshold
+      ? undefined
+      : matchingStacks;
 
   assert.equal(next.run.evolveProgress.get(evolveCard.id), expectedProgress);
 });
@@ -165,6 +169,8 @@ test("evolve progress survives entering the next battle", () => {
   const state = battle.startBattle(rng);
   const battleNode = {
     id: "evolve-progress-battle",
+    floor: 1,
+    x: 0,
     kind: "battle",
     nextNodeIds: [],
   };

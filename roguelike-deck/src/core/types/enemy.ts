@@ -1,5 +1,8 @@
 import type { StatusEffect } from "./card";
 
+// 敵種別IDとは別の、バトル中の個体識別子
+export type EnemyInstanceId = string;
+
 // エネミーオーブの効果（Discriminated Union）
 // Phase 7 MVP: blockOnOriginalCardPlay のみ
 export type EnemyOrbEffect = {
@@ -20,7 +23,7 @@ export interface EnemyCodexEntry {
   readonly enemyId: string;
   readonly points: number; // 0〜100
   readonly isUnlocked: boolean;
-  readonly orbId: string; // 対応するオーブのID
+  readonly orbId: string | null; // 対応するオーブがない敵は null
 }
 
 // 図鑑全体の状態（enemyId → エントリ）
@@ -58,8 +61,8 @@ export type EnemyAction =
     }
   | { kind: "idle" }; // 何もしない
 
-// 敵の格付け（ボス判別・将来の中ボス追加に対応）
-export type EnemyTier = "normal" | "boss";
+// 敵の格付け（ボス判別・エリート追加に対応）
+export type EnemyTier = "normal" | "elite" | "boss";
 
 // selectAction に渡すコンテキスト（案A: HP しきい値による行動変化に対応）
 export interface EnemyActionContext {
@@ -75,6 +78,7 @@ export interface EnemyBehavior {
 
 // 敵1体の状態
 export interface Enemy {
+  readonly instanceId: EnemyInstanceId;
   readonly id: string;
   readonly name: string;
   readonly maxHp: number;

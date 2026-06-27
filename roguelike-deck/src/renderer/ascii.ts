@@ -14,6 +14,8 @@ import { renderRestScreen } from "../screens/rest";
 import { renderResultScreen } from "../screens/result";
 import { renderForgeScreen } from "../screens/forge";
 import { renderShopScreen } from "../screens/shop";
+import { renderTreasureScreen } from "../screens/treasure";
+import { renderEventScreen } from "../screens/event";
 import { defaultRng } from "../core/rng";
 
 // DOM 要素の ID 定数
@@ -25,6 +27,7 @@ export class AsciiRenderer implements Renderer {
   private endTurnHandler: (() => void) | null = null;
   private skipRewardHandler: (() => void) | null = null;
   private deckViewHandler: (() => void) | null = null;
+  private discardViewHandler: (() => void) | null = null;
   // タイトル画面のクリーンアップ関数
   private titleCleanup: (() => void) | null = null;
   // 実績一覧画面のクリーンアップ関数
@@ -40,6 +43,8 @@ export class AsciiRenderer implements Renderer {
   // 鍛冶所画面のクリーンアップ関数
   private forgeCleanup: (() => void) | null = null;
   private shopCleanup: (() => void) | null = null;
+  private treasureCleanup: (() => void) | null = null;
+  private eventCleanup: (() => void) | null = null;
   // リザルト画面のクリーンアップ関数
   private resultCleanup: (() => void) | null = null;
   // リザルト画面に表示する新規取得実績ID
@@ -61,6 +66,14 @@ export class AsciiRenderer implements Renderer {
     app.innerHTML = `
       <div id="game">
         <div id="battle-screen">
+          <aside id="battle-run-info" aria-label="ラン情報">
+            <p id="battle-gold"></p>
+            <div>
+              <strong>遺物</strong>
+              <ul id="battle-relic-list"></ul>
+            </div>
+          </aside>
+
           <section id="enemy-area">
             <h2 id="enemy-name"></h2>
             <p id="enemy-hp"></p>
@@ -79,7 +92,10 @@ export class AsciiRenderer implements Renderer {
             <button id="deck-view-btn" type="button">山札を見る</button>
             <div id="deck-view-content" style="display:none;">
               <div id="deck-view-deck"></div>
-              <div id="deck-view-discard"></div>
+            </div>
+            <button id="discard-view-btn" type="button">捨て札を見る</button>
+            <div id="discard-view-content" style="display:none;">
+              <div id="discard-view-discard"></div>
             </div>
           </section>
 
@@ -108,6 +124,7 @@ export class AsciiRenderer implements Renderer {
           <h2>報酬カードを選んでください</h2>
           <div id="reward-cards"></div>
           <div id="reward-potion"></div>
+          <div id="reward-relic"></div>
           <div id="reward-orb"></div>
           <button id="skip-reward-btn" type="button">スキップ</button>
         </div>
@@ -144,6 +161,18 @@ export class AsciiRenderer implements Renderer {
         deckViewBtn.textContent = isOpen ? "山札を見る" : "山札を閉じる";
       };
       deckViewBtn.addEventListener("click", this.deckViewHandler);
+    }
+
+    // 捨て札を見るボタンにトグル処理を登録
+    const discardViewBtn = document.getElementById("discard-view-btn");
+    const discardViewContent = document.getElementById("discard-view-content");
+    if (discardViewBtn !== null && discardViewContent !== null) {
+      this.discardViewHandler = () => {
+        const isOpen = discardViewContent.style.display !== "none";
+        discardViewContent.style.display = isOpen ? "none" : "";
+        discardViewBtn.textContent = isOpen ? "捨て札を見る" : "捨て札を閉じる";
+      };
+      discardViewBtn.addEventListener("click", this.discardViewHandler);
     }
 
     // ゲーム画面を非表示にする（工房画面を showWorkshop() で後から表示する）
@@ -309,8 +338,9 @@ export class AsciiRenderer implements Renderer {
         // 動的画面をクリーンアップ（マップ・休憩・リザルト）
         this.cleanupDynamicScreens();
         // 戦闘画面の各要素を更新
-        this.renderEnemy(state);
+        this.renderEnemies(state);
         this.renderPlayer(state);
+        this.renderRunInfo(state);
         this.renderHand(state);
         this.renderDeckView(state);
         this.renderLog(state);
@@ -340,6 +370,14 @@ export class AsciiRenderer implements Renderer {
 
       case "shop":
         this.showShop(state);
+        break;
+
+      case "treasure":
+        this.showTreasure(state);
+        break;
+
+      case "event":
+        this.showEvent(state);
         break;
 
       case "result":
@@ -398,6 +436,13 @@ export class AsciiRenderer implements Renderer {
     }
     this.deckViewHandler = null;
 
+    // 捨て札を見るボタンのハンドラーを解除
+    const discardViewBtn = document.getElementById("discard-view-btn");
+    if (discardViewBtn !== null && this.discardViewHandler !== null) {
+      discardViewBtn.removeEventListener("click", this.discardViewHandler);
+    }
+    this.discardViewHandler = null;
+
     this.callbacks = null;
 
     // 手札エリアをクリア（各カードボタンは innerHTML クリアで自動解除）
@@ -434,6 +479,14 @@ export class AsciiRenderer implements Renderer {
     if (this.shopCleanup !== null) {
       this.shopCleanup();
       this.shopCleanup = null;
+    }
+    if (this.treasureCleanup !== null) {
+      this.treasureCleanup();
+      this.treasureCleanup = null;
+    }
+    if (this.eventCleanup !== null) {
+      this.eventCleanup();
+      this.eventCleanup = null;
     }
     if (this.resultCleanup !== null) {
       this.resultCleanup();
@@ -493,6 +546,28 @@ export class AsciiRenderer implements Renderer {
     this.shopCleanup = renderShopScreen(dynamicScreens, this.callbacks, state);
   }
 
+  private showTreasure(state: GameState): void {
+    this.cleanupDynamicScreens();
+
+    const dynamicScreens = document.getElementById("dynamic-screens");
+    if (dynamicScreens === null || this.callbacks === null) return;
+
+    this.treasureCleanup = renderTreasureScreen(
+      dynamicScreens,
+      this.callbacks,
+      state,
+    );
+  }
+
+  private showEvent(state: GameState): void {
+    this.cleanupDynamicScreens();
+
+    const dynamicScreens = document.getElementById("dynamic-screens");
+    if (dynamicScreens === null || this.callbacks === null) return;
+
+    this.eventCleanup = renderEventScreen(dynamicScreens, this.callbacks, state);
+  }
+
   /**
    * リザルト画面を表示する（screens/result.ts に委譲）
    */
@@ -531,6 +606,8 @@ export class AsciiRenderer implements Renderer {
       state.phase === "rest" ||
       state.phase === "forge" ||
       state.phase === "shop" ||
+      state.phase === "treasure" ||
+      state.phase === "event" ||
       state.phase === "result";
 
     if (battleScreen !== null)
@@ -541,28 +618,58 @@ export class AsciiRenderer implements Renderer {
       dynamicScreens.style.display = isDynamicPhase ? "" : "none";
   }
 
-  private renderEnemy(state: GameState): void {
-    const enemy = state.enemy;
-    const isBoss = enemy.tier === "boss";
-    const nameEl = document.getElementById("enemy-name");
-    const hpEl = document.getElementById("enemy-hp");
-    const blockEl = document.getElementById("enemy-block");
-    const intentEl = document.getElementById("enemy-intent");
+  private renderEnemies(state: GameState): void {
+    const enemyArea = document.getElementById("enemy-area");
+    if (enemyArea === null) return;
 
-    // ボスのときは名称に【BOSS】プレフィックスを追加し、CSSクラスで強調する
-    if (nameEl !== null) {
+    enemyArea.innerHTML = "";
+    for (const enemy of state.enemies) {
+      const isBoss = enemy.tier === "boss";
+      const enemyCard = document.createElement("article");
+      enemyCard.className = "enemy-card";
+      enemyCard.dataset["instanceId"] = enemy.instanceId;
+
+      const nameEl = document.createElement("h2");
       nameEl.textContent = isBoss ? `【BOSS】${enemy.name}` : enemy.name;
       nameEl.classList.toggle("enemy-name--boss", isBoss);
-    }
-    // ボスの HP 表示を専用スタイルで強調する
-    if (hpEl !== null) {
+      enemyCard.appendChild(nameEl);
+
+      const hpEl = document.createElement("p");
       hpEl.textContent = `HP: ${enemy.currentHp} / ${enemy.maxHp}`;
       hpEl.classList.toggle("enemy-hp--boss", isBoss);
-    }
-    if (blockEl !== null)
+      enemyCard.appendChild(hpEl);
+
+      const blockEl = document.createElement("p");
       blockEl.textContent = enemy.block > 0 ? `ブロック: ${enemy.block}` : "";
-    if (intentEl !== null)
+      enemyCard.appendChild(blockEl);
+
+      const intentEl = document.createElement("p");
       intentEl.textContent = `行動予告: ${describeAction(enemy.nextAction)}`;
+      enemyCard.appendChild(intentEl);
+
+      // 複数敵がいる場合はターゲット変更ボタンを常に表示する
+      const isCurrentTarget =
+        state.selectedEnemyInstanceId === enemy.instanceId;
+      if (isCurrentTarget) {
+        const markerEl = document.createElement("p");
+        markerEl.textContent = "[▶ターゲット中]";
+        markerEl.style.color = "#f0c040";
+        markerEl.style.fontWeight = "bold";
+        enemyCard.appendChild(markerEl);
+      }
+      if (state.enemies.length > 1 && enemy.currentHp > 0) {
+        const targetButton = document.createElement("button");
+        targetButton.type = "button";
+        targetButton.textContent = "ターゲット";
+        targetButton.disabled = isCurrentTarget;
+        targetButton.addEventListener("click", () => {
+          this.callbacks?.onSelectTarget(enemy.instanceId);
+        });
+        enemyCard.appendChild(targetButton);
+      }
+
+      enemyArea.appendChild(enemyCard);
+    }
   }
 
   private renderPlayer(state: GameState): void {
@@ -606,10 +713,36 @@ export class AsciiRenderer implements Renderer {
     }
   }
 
+  private renderRunInfo(state: GameState): void {
+    const goldEl = document.getElementById("battle-gold");
+    const relicListEl = document.getElementById("battle-relic-list");
+
+    if (goldEl !== null) {
+      goldEl.textContent = `ゴールド: ${state.run.gold}`;
+    }
+
+    if (relicListEl !== null) {
+      relicListEl.innerHTML = "";
+
+      if (state.relics.length === 0) {
+        const emptyItem = document.createElement("li");
+        emptyItem.textContent = "なし";
+        relicListEl.appendChild(emptyItem);
+        return;
+      }
+
+      for (const relic of state.relics) {
+        const item = document.createElement("li");
+        item.textContent = `${relic.name}: ${relic.description}`;
+        relicListEl.appendChild(item);
+      }
+    }
+  }
+
   private renderDeckView(state: GameState): void {
     const player = state.player;
     const deckEl = document.getElementById("deck-view-deck");
-    const discardEl = document.getElementById("deck-view-discard");
+    const discardEl = document.getElementById("discard-view-discard");
 
     if (deckEl !== null) {
       const deckItems = player.deck.map((c) => `${c.name}（${c.description}）`);
@@ -632,8 +765,12 @@ export class AsciiRenderer implements Renderer {
     handCards.innerHTML = "";
 
     // 捨て選択プロンプトの表示・非表示を切り替える
-    const existingPrompt = document.getElementById("discard-prompt");
-    if (existingPrompt !== null) existingPrompt.remove();
+    const existingDiscardPrompt = document.getElementById("discard-prompt");
+    if (existingDiscardPrompt !== null) existingDiscardPrompt.remove();
+    const existingTargetPrompt = document.getElementById(
+      "target-selection-prompt",
+    );
+    if (existingTargetPrompt !== null) existingTargetPrompt.remove();
 
     if (state.pendingDiscard !== null) {
       // 捨てるカードを選ぶよう促すプロンプトを手札エリア上部に追加する
@@ -685,8 +822,8 @@ export class AsciiRenderer implements Renderer {
     if (logList === null) return;
 
     logList.innerHTML = "";
-    // 最新のログが下になるよう順に追加
-    for (const entry of state.log) {
+    // 最新のログが上になるよう表示時だけ反転する
+    for (const entry of state.log.toReversed()) {
       const li = document.createElement("li");
       li.textContent = entry;
       logList.appendChild(li);
@@ -743,8 +880,8 @@ export class AsciiRenderer implements Renderer {
 
     if (defeatedMsg !== null) {
       defeatedMsg.textContent =
-        state.lastDefeatedEnemyName !== ""
-          ? `${state.lastDefeatedEnemyName} を倒した！`
+        state.lastDefeatedEnemyNames.length > 0
+          ? `${state.lastDefeatedEnemyNames.join("、")} を倒した！`
           : "";
     }
     if (goldMsg !== null) {
@@ -783,12 +920,26 @@ export class AsciiRenderer implements Renderer {
       }
     }
 
+    const rewardRelic = document.getElementById("reward-relic");
+    if (rewardRelic !== null) {
+      rewardRelic.innerHTML = "";
+      if (state.rewardRelic !== null) {
+        const relic = state.rewardRelic;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = `遺物：${relic.name} を受け取る — ${relic.description}`;
+        btn.addEventListener("click", () => {
+          this.callbacks?.onClaimRewardRelic();
+        });
+        rewardRelic.appendChild(btn);
+      }
+    }
+
     // オーブ解放通知
     const rewardOrb = document.getElementById("reward-orb");
     if (rewardOrb !== null) {
       rewardOrb.innerHTML = "";
-      if (state.rewardUnlockedOrb !== null) {
-        const orb = state.rewardUnlockedOrb;
+      for (const orb of state.rewardUnlockedOrbs) {
         const msg = document.createElement("p");
         msg.style.color = "#f0c040";
         msg.textContent = `【図鑑オーブ解放】${orb.name}を入手した！`;

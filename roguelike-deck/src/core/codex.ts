@@ -2,7 +2,7 @@
 import type { GameState } from "./types/gameState";
 import type { EnemyCodexEntry, CodexState } from "./types/enemy";
 import type { OriginalCard } from "./types/originalCard";
-import { ALL_ORBS } from "./data/orbData";
+import { ALL_CODEX_ENEMIES } from "./data/orbData";
 
 const CODEX_MAX_POINTS = 100;
 
@@ -18,14 +18,15 @@ export function buildCodexState(
 ): CodexState {
   const map = new Map<string, EnemyCodexEntry>();
 
-  for (const orb of ALL_ORBS) {
-    const points = codexPoints[orb.sourceEnemyId] ?? 0;
-    const isUnlocked = acquiredOrbIds.includes(orb.id);
-    map.set(orb.sourceEnemyId, {
-      enemyId: orb.sourceEnemyId,
+  for (const spec of ALL_CODEX_ENEMIES) {
+    const points = codexPoints[spec.enemyId] ?? 0;
+    const isUnlocked =
+      spec.orbId !== null && acquiredOrbIds.includes(spec.orbId);
+    map.set(spec.enemyId, {
+      enemyId: spec.enemyId,
       points,
       isUnlocked,
-      orbId: orb.id,
+      orbId: spec.orbId,
     });
   }
 
@@ -66,6 +67,7 @@ export function addCodexPoints(
 export function unlockOrb(state: GameState, enemyId: string): GameState {
   const entry = state.run.codexState.get(enemyId);
   if (entry === undefined) return state;
+  if (entry.orbId === null) return state;
   if (entry.points < CODEX_MAX_POINTS) return state;
   if (entry.isUnlocked) return state;
 

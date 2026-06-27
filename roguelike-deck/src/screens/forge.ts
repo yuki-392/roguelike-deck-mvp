@@ -123,17 +123,22 @@ export function renderForgeScreen(
   let selectedEffect: ForgeEffect | null = null;
   const selectedRelicIds: string[] = [];
 
-  const leaveBtn = document.createElement("button");
-  leaveBtn.type = "button";
-  leaveBtn.id = "forge-leave-btn";
-  leaveBtn.textContent = "戻る（何もしない）";
-  const leaveHandler = () => callbacks.onLeaveForge();
-  leaveBtn.addEventListener("click", leaveHandler);
-  handlers.push({ button: leaveBtn, handler: leaveHandler });
-  screen.appendChild(leaveBtn);
+  const forgeableCards = getForgeableCards(state);
+  const convertibleRelics = getConvertibleRelics(state);
+
+  if (forgeableCards.length === 0 && convertibleRelics.length < 2) {
+    const unavailable = document.createElement("p");
+    unavailable.textContent = "鍛冶できる対象がありません。";
+    screen.appendChild(unavailable);
+    container.appendChild(screen);
+    callbacks.onLeaveForge();
+
+    return () => {
+      screen.remove();
+    };
+  }
 
   const showResult = (message: string) => {
-    leaveBtn.style.display = "none";
     cardArea.style.display = "none";
     relicArea.style.display = "none";
     cardModeButton.disabled = true;
@@ -151,7 +156,6 @@ export function renderForgeScreen(
     result.appendChild(completeButton);
   };
 
-  const forgeableCards = getForgeableCards(state);
   if (forgeableCards.length === 0) {
     cardList.textContent = "鍛冶できるカードがありません。";
     cardModeButton.disabled = true;
@@ -186,7 +190,6 @@ export function renderForgeScreen(
     }
   }
 
-  const convertibleRelics = getConvertibleRelics(state);
   if (convertibleRelics.length < 2) {
     relicList.textContent = "変換できる遺物が2つ以上ありません。";
     relicModeButton.disabled = true;

@@ -1,4 +1,6 @@
 // ステータス効果（Discriminated Union）
+import type { EnemyInstanceId } from "./enemy";
+
 export type StatusEffect =
   | { kind: "vulnerable" } // 受けるダメージ増加
   | { kind: "weak" } // 与えるダメージ減少
@@ -9,13 +11,17 @@ export type StatusEffect =
 // カード1枚の効果（Discriminated Union）
 // - 複数効果カードに対応するため CardEffect は配列で保持する
 // - amount は型としては number のみ定義し、バランス数値はゲームデータ層で決める
+export type AttackTarget =
+  | { kind: "single"; instanceId: EnemyInstanceId }
+  | { kind: "allEnemies" };
+
 export type CardEffect =
-  | { kind: "attack"; amount: number }
+  | { kind: "attack"; amount: number; target?: AttackTarget }
   | { kind: "block"; amount: number }
   | { kind: "draw"; count: number }
   | { kind: "gainEnergy"; amount: number }
   | { kind: "applyStatus"; status: StatusEffect; stacks: number }
-  | { kind: "multiAttack"; amount: number; times: number } // 複数回攻撃
+  | { kind: "multiAttack"; amount: number; times: number; target?: AttackTarget } // 複数回攻撃
   | { kind: "selfDamage"; amount: number } // 自分にダメージ（ブロック無視）
   | { kind: "discard"; count: number } // 手札からランダムに捨てる
   | {
@@ -23,6 +29,7 @@ export type CardEffect =
       baseAmount: number;
       bonusAmount: number;
       condition: "attackedThisTurn";
+      target?: AttackTarget;
     } // 条件付き追加ダメージ
   | { kind: "costReductionNextCard"; amount: number } // 次に使うカードのコスト削減
   | { kind: "buffNextDefense"; amount: number } // 次に使う防御カードにボーナスブロック
@@ -30,6 +37,14 @@ export type CardEffect =
 
 // カードの希少度
 export type CardRarity = "common" | "uncommon" | "rare";
+
+// カード図鑑で使用する表示カテゴリ
+export type CardCategory =
+  | "attack"
+  | "defense"
+  | "skill"
+  | "evolve"
+  | "original";
 
 // 開始デッキとの内部相性判定に使うタグ（プレイヤーには表示しない）
 export type AffinityTag =
@@ -76,6 +91,8 @@ export type CardCost =
 // カード1枚のメタデータ＋効果
 export interface Card {
   readonly id: string; // ユニーク識別子
+  readonly no: string; // カード図鑑のカタログNo
+  readonly category: CardCategory; // カード図鑑の表示カテゴリ
   readonly name: string; // 表示名
   readonly cost: CardCost;
   readonly effects: readonly CardEffect[]; // 複数効果に対応

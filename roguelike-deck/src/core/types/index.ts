@@ -3,6 +3,8 @@ export type {
   CardEffect,
   CardCost,
   CardRarity,
+  CardCategory,
+  AttackTarget,
   AffinityTag,
   EvolveCondition,
   EvolveCard,
@@ -10,6 +12,7 @@ export type {
 } from "./card";
 export type {
   Enemy,
+  EnemyInstanceId,
   EnemyAction,
   EnemyBehavior,
   EnemyTier,
@@ -43,3 +46,9 @@ export type {
 export type { NodeKind, MapNode, FloorMap } from "./map";
 export type { Potion, PotionEffect } from "./potion";
 export type { Achievement, AchievementId } from "./achievement";
+export type {
+  EventEffect,
+  EventChoice,
+  EventDefinition,
+  ChainEventFlags,
+} from "./event";

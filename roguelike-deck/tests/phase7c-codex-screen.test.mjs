@@ -145,7 +145,7 @@ test("renderCodexOverlay shows codex points for slime", async () => {
   );
 });
 
-test("renderCodexOverlay falls back to 0pt when codexState has no entry", async () => {
+test("renderCodexOverlay hides enemies with 0pt", async () => {
   const { renderCodexOverlay } = await runnerImport(
     "./src/screens/codex.ts",
   ).then((m) => m.module);
@@ -163,7 +163,11 @@ test("renderCodexOverlay falls back to 0pt when codexState has no entry", async 
   const overlay = findById(container, "codex-overlay");
   assert.ok(overlay !== null);
   const text = collectText(overlay);
-  assert.ok(text.includes("0"), "0ptが表示される");
+  assert.ok(
+    text.includes("まだ倒した敵はいません。"),
+    "未発見時のメッセージが表示される",
+  );
+  assert.ok(!text.includes("スライム"), "未発見の敵は表示されない");
 
   cleanup();
 });

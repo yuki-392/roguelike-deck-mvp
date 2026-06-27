@@ -89,3 +89,18 @@ test("starter decks and reward cards have internal affinity tags without changin
   assert.ok(lacerationCard.affinityTags.includes("laceration"));
   assert.ok(comboCard.affinityTags.includes("combo"));
 });
+
+test("reward pool excludes cards that appear in selectable starter decks", () => {
+  const starterCardNames = new Set(
+    [...cards.createStarterDeck(), ...cards.createComboDeck()].map(
+      (card) => card.name,
+    ),
+  );
+  const rewardCardNames = cards.createRewardPool().map((card) => card.name);
+
+  const duplicatedStarterNames = rewardCardNames.filter((name) =>
+    starterCardNames.has(name),
+  );
+
+  assert.deepEqual(duplicatedStarterNames, []);
+});

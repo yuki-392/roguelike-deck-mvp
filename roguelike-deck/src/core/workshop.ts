@@ -12,6 +12,7 @@ import {
   SHUCHU_MATERIAL,
   KYODA_MATERIAL,
   DAIBOGYO_MATERIAL,
+  isEvolvedCard,
 } from "./data/cards";
 
 /**
@@ -30,7 +31,7 @@ export function getMaterializableCards(): readonly Card[] {
     SHUCHU_MATERIAL,
     KYODA_MATERIAL,
     DAIBOGYO_MATERIAL,
-  ];
+  ].filter(canUseAsWorkshopMaterial);
 }
 
 /**
@@ -42,6 +43,13 @@ export function getUnlockedMaterializableCards(
   return getMaterializableCards().filter((card) =>
     discoveredCardNames.has(card.name),
   );
+}
+
+/**
+ * 工房素材として使えるカードかどうかを判定する
+ */
+export function canUseAsWorkshopMaterial(card: Card): boolean {
+  return !isOriginalCard(card) && !isEvolvedCard(card);
 }
 
 /**
@@ -172,6 +180,8 @@ export function computeOriginalCard(
 
   return {
     id,
+    no: "original-000",
+    category: "original",
     name,
     cost: finalCost,
     effects: combinedEffects,

@@ -37,6 +37,14 @@ test("buildDiscoveredCardNames restores a ReadonlySet from persisted names", () 
   assert.equal(discovered.size, 2);
 });
 
+test("buildDiscoveredCardNames normalizes upgraded names from persisted data", () => {
+  const discovered = cardCodex.buildDiscoveredCardNames(["二連攻撃+", "二連攻撃"]);
+
+  assert.equal(discovered.has("二連攻撃"), true);
+  assert.equal(discovered.has("二連攻撃+"), false);
+  assert.equal(discovered.size, 1);
+});
+
 test("registerCardUsage adds a card name and is idempotent", () => {
   const state = battle.startBattle(rng);
 
@@ -45,6 +53,15 @@ test("registerCardUsage adds a card name and is idempotent", () => {
 
   assert.equal(afterFirst.run.discoveredCardNames.has("攻撃"), true);
   assert.equal(afterSecond, afterFirst);
+});
+
+test("registerCardUsage stores upgraded card names as base card names", () => {
+  const state = battle.startBattle(rng);
+
+  const next = cardCodex.registerCardUsage(state, "二連攻撃+");
+
+  assert.equal(next.run.discoveredCardNames.has("二連攻撃"), true);
+  assert.equal(next.run.discoveredCardNames.has("二連攻撃+"), false);
 });
 
 test("startRun restores discovered card names from persistentData", () => {
@@ -72,6 +89,24 @@ test("playCard registers non-original cards by card name", () => {
   const next = battle.playCard(state, card.id, rng);
 
   assert.equal(next.run.discoveredCardNames.has("図鑑攻撃"), true);
+});
+
+test("playCard registers upgraded non-original cards by base card name", () => {
+  const card = {
+    id: "codex-double-attack-upgraded",
+    name: "二連攻撃+",
+    cost: { kind: "zero" },
+    effects: [{ kind: "multiAttack", amount: 1, times: 2 }],
+    rarity: "common",
+    description: "",
+    upgraded: true,
+  };
+  const state = withCardInHand(battle.startBattle(rng), card);
+
+  const next = battle.playCard(state, card.id, rng);
+
+  assert.equal(next.run.discoveredCardNames.has("二連攻撃"), true);
+  assert.equal(next.run.discoveredCardNames.has("二連攻撃+"), false);
 });
 
 test("playCard does not register original cards", () => {

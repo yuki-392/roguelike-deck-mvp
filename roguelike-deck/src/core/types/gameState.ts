@@ -6,6 +6,7 @@ import type { FloorMap } from "./map";
 import type { StartingDeckType } from "./runSetup";
 import type { Potion } from "./potion";
 import type { CodexState, EnemyOrb } from "./enemy";
+import type { ChainEventFlags, EventDefinition } from "./event";
 
 export interface ShopCardItem {
   readonly card: Card;
@@ -51,6 +52,8 @@ export type GamePhase =
   | "rest" // 休憩所（新規）
   | "forge" // 鍛冶所
   | "shop" // ショップ
+  | "treasure" // 宝箱報酬確認
+  | "event" // イベントマス
   | "result" // リザルト（新規）
   | "gameover" // 後方互換のため残す
   | "victory"; // 後方互換のため残す
@@ -82,19 +85,20 @@ export interface RunState {
   readonly encounteredEnemyIds: ReadonlySet<string>; // 初遭遇判定用（このランで遭遇済みの敵ID）
   readonly lastBattleDamageReceived: number; // 今バトルでプレイヤーが受けたダメージ合計（ノーダメ撃破判定用）
   readonly trialLevel: 0 | 1; // 試練レベル（RunConfig から引き継ぎ）
+  readonly chainEventFlags: ChainEventFlags; // 連鎖イベントの進行状態
 }
 
 // ゲーム全体の状態（readonly で副作用なし更新を型レベルで強制）
 export interface GameState {
   readonly player: Player;
-  readonly enemy: Enemy;
+  readonly enemies: readonly Enemy[];
   readonly turn: TurnOwner;
   readonly phase: GamePhase;
   readonly outcome: "victory" | "defeat" | null; // ラン結果（null = 継続中）
   readonly log: readonly string[]; // 直近のイベントログ（Renderer が表示する文字列だが、生成はロジック側）
   readonly rewardCandidates: readonly Card[]; // 報酬フェーズ中の候補（3枚）。他フェーズでは空配列
   readonly rewardGold: number; // 今回の戦闘で得たゴールド（報酬画面に表示。他フェーズでは 0）
-  readonly lastDefeatedEnemyName: string; // 最後に倒した敵の名前（報酬画面に表示。他フェーズでは ""）
+  readonly lastDefeatedEnemyNames: readonly string[]; // 倒した敵の名前（報酬画面に表示。他フェーズでは空配列）
   readonly roomNumber: number; // 現在の部屋番号（1始まり）
   readonly relics: readonly Relic[]; // ラン中に所持している遺物（ラン間で永続）
   readonly cardsPlayedThisTurn: number; // 今ターンにプレイしたカード枚数（小さな歯車の発火カウンタ）
@@ -105,7 +109,13 @@ export interface GameState {
   readonly run: RunState; // ラン進行状態（マップ・ゴールド・統計）
   // null = 通常状態（捨て選択待ちなし）、{ count: N } = プレイヤーがあと N 枚を手動で捨て札に選ぶ必要がある状態
   readonly pendingDiscard: { readonly count: number } | null;
+  readonly pendingTargetCardId: string | null;
+  readonly selectedEnemyInstanceId: string | null; // 現在のデフォルトターゲット敵のinstanceId（null = 敵なし）
   readonly attackBonusThisTurn: number; // 攻撃ポーション効果：このターン中の攻撃カードダメージボーナス（ターン終了時リセット）
   readonly rewardPotion: Potion | null; // 報酬フェーズで出現したポーション（null = なし）
-  readonly rewardUnlockedOrb: EnemyOrb | null; // このバトルで解放されたオーブ（報酬画面に表示。他フェーズでは null）
+  readonly rewardRelic: Relic | null; // 報酬フェーズ/宝箱で出現した遺物（null = なし）
+  readonly rewardUnlockedOrbs: readonly EnemyOrb[]; // このバトルで解放されたオーブ（報酬画面に表示。他フェーズでは空配列）
+  readonly zeroCostCardsPlayedThisBattle: number; // 錆びた歯車用：このバトルで使用した0コストカード累計
+  readonly originalCardUsedThisBattle: boolean; // 空紋の欠片用：このバトルでオリジナルカードを使用済みか
+  readonly activeEvent: EventDefinition | null; // イベント画面で表示中の定義
 }

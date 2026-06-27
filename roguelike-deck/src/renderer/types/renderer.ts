@@ -8,6 +8,7 @@ import type { Relic } from "../../core/types/relic";
 // AsciiRenderer がDOMイベントを受け取り、main.ts に委譲する境界
 export interface RendererCallbacks {
   readonly onPlayCard: (cardId: string) => void;
+  readonly onSelectTarget: (instanceId: string) => void;
   readonly onEndTurn: () => void;
   readonly onSelectRewardCard: (cardId: string) => void;
   readonly onSkipReward: () => void;
@@ -54,8 +55,13 @@ export interface RendererCallbacks {
   readonly onUsePotion: (potionIndex: number) => void;
   // 報酬ポーション取得
   readonly onClaimRewardPotion: () => void;
+  // 報酬/宝箱遺物取得
+  readonly onClaimRewardRelic: () => void;
   // 捨て札選択（pendingDiscard 解決）
   readonly onSelectDiscardCard: (cardId: string) => void;
+  // イベント
+  readonly onSelectEventChoice: (choiceIndex: number) => void;
+  readonly onLeaveEvent: () => void;
 }
 
 // Renderer インターフェース

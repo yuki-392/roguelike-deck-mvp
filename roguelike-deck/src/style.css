@@ -147,7 +147,8 @@ code {
     z-index: 1;
     top: 34px;
     height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg) scale(1.4);
+    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
+      scale(1.4);
   }
 
   .vite {
@@ -155,7 +156,8 @@ code {
     top: 107px;
     height: 26px;
     width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg) scale(0.8);
+    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
+      scale(0.8);
   }
 }
 
@@ -190,7 +192,7 @@ code {
   border-top: 1px solid var(--border);
   text-align: left;
 
-  &>div {
+  & > div {
     flex: 1 1 0;
     padding: 32px;
 
@@ -284,6 +286,54 @@ code {
 .enemy-hp--boss {
   color: #cc5500;
   font-weight: bold;
+}
+
+#battle-screen {
+  position: relative;
+  padding: 24px;
+}
+
+#battle-run-info {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: min(280px, calc(100% - 32px));
+  box-sizing: border-box;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+#battle-gold {
+  color: var(--text-h);
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+#battle-relic-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+#battle-relic-list li {
+  margin-top: 4px;
+}
+
+@media (max-width: 720px) {
+  #battle-screen {
+    padding-top: 148px;
+  }
+
+  #battle-run-info {
+    left: 16px;
+    right: 16px;
+    width: auto;
+  }
 }
 
 #spacer {
@@ -397,4 +447,88 @@ code {
   margin-left: 10px;
   gap: 12px;
   margin-top: 24px;
+}
+
+/* ---- マップ全体図 SVG ---- */
+
+#map-view-wrapper {
+  margin: 0 auto 20px;
+  overflow: auto;
+  max-height: 480px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
+.map-svg {
+  display: block;
+  width: 376px;
+  height: 748px;
+}
+
+.map-floor-label {
+  font-size: 11px;
+  fill: var(--text);
+  dominant-baseline: central;
+  text-anchor: start;
+  font-family: var(--mono);
+}
+
+.map-edge {
+  stroke: var(--border);
+  stroke-width: 1.5;
+  stroke-opacity: 0.7;
+}
+
+.map-edge--used {
+  stroke: var(--text);
+  stroke-width: 2;
+  stroke-opacity: 0.9;
+}
+
+.map-edge--active {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+}
+
+.map-node {
+  cursor: default;
+}
+
+.map-node--selectable {
+  cursor: pointer;
+}
+
+.map-node--selectable:hover .map-node-circle {
+  filter: brightness(1.35);
+}
+
+.map-node-circle {
+  stroke: none;
+  transition: filter 0.15s;
+}
+
+.map-node--selectable .map-node-circle {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+.map-node--current .map-node-circle {
+  stroke: #fff;
+  stroke-width: 3.5;
+  filter: drop-shadow(0 0 6px var(--accent));
+}
+
+.map-node--visited .map-node-circle {
+  opacity: 0.35;
+  filter: saturate(0.15);
+}
+
+.map-node-icon {
+  font-size: 14px;
+  fill: #fff;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+  user-select: none;
 }

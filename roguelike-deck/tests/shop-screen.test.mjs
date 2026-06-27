@@ -133,11 +133,47 @@ test("shop screen disables unaffordable goods and invokes each shop callback", (
   cardButton.click();
   relicButton.click();
   removeButton.click();
-  findById(container, "shop-leave-btn").click();
 
   assert.deepEqual(calls, [
     ["card", card.id],
     ["remove", removable.id],
-    ["leave"],
   ]);
+  assert.equal(findById(container, "shop-leave-btn"), null);
+});
+
+test("shop screen leaves automatically when nothing is affordable", () => {
+  const card = cards.createRewardPool()[0];
+  const removable = cards.createStarterDeck()[0];
+  const state = {
+    ...battle.startBattle(() => 0),
+    phase: "shop",
+    run: { ...battle.startBattle(() => 0).run, gold: 0 },
+    player: {
+      ...battle.startBattle(() => 0).player,
+      deck: [removable],
+    },
+    shopItems: {
+      cards: [{ card, price: 40 }],
+      relics: [{ relic: TEST_SHOP_RELIC, price: 90 }],
+      potions: [],
+      cardRemovalPrice: 50,
+    },
+  };
+  const calls = [];
+  const container = new FakeElement("div");
+
+  screenModule.renderShopScreen(
+    container,
+    {
+      onBuyShopCard: () => {},
+      onBuyShopRelic: () => {},
+      onBuyShopPotion: () => {},
+      onRemoveShopCard: () => {},
+      onLeaveShop: () => calls.push("leave"),
+    },
+    state,
+  );
+
+  assert.deepEqual(calls, ["leave"]);
+  assert.equal(findById(container, "shop-leave-btn"), null);
 });

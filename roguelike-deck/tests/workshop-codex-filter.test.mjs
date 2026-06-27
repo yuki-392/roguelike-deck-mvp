@@ -3,10 +3,15 @@ import { before, test } from "node:test";
 import { runnerImport } from "vite";
 
 let workshop;
+let cards;
 
 before(async () => {
-  const loadedWorkshop = await runnerImport("./src/core/workshop.ts");
+  const [loadedWorkshop, loadedCards] = await Promise.all([
+    runnerImport("./src/core/workshop.ts"),
+    runnerImport("./src/core/data/cards.ts"),
+  ]);
   workshop = loadedWorkshop.module;
+  cards = loadedCards.module;
 });
 
 test("getUnlockedMaterializableCards returns empty when no card names are discovered", () => {
@@ -44,4 +49,21 @@ test("getUnlockedMaterializableCards does not unlock by material card id", () =>
   );
 
   assert.deepEqual(unlocked, []);
+});
+
+test("canUseAsWorkshopMaterial rejects evolved cards registered in the card codex", () => {
+  const evolvedCard = cards.createEvolvedCard(
+    "evolved-assault",
+    "codex-evolved-card",
+  );
+  assert.ok(evolvedCard);
+  assert.equal(evolvedCard.name, "完成された一撃");
+
+  const materialCard = workshop
+    .getMaterializableCards()
+    .find((card) => card.name === "攻撃");
+  assert.ok(materialCard);
+
+  assert.equal(workshop.canUseAsWorkshopMaterial(evolvedCard), false);
+  assert.equal(workshop.canUseAsWorkshopMaterial(materialCard), true);
 });

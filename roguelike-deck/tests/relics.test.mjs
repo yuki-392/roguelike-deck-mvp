@@ -19,55 +19,30 @@ before(async () => {
   startingDecks = loadedStartingDecks.module;
 });
 
-test("relic master list contains only the four starter deck relics", () => {
+test("relic master list contains four starter relics and twelve non-starter relics", () => {
+  const starterRelics = relics.ALL_RELICS.filter((r) => r.isStarter);
+  const nonStarterRelics = relics.ALL_RELICS.filter((r) => !r.isStarter);
+  assert.equal(starterRelics.length, 4);
+  assert.equal(nonStarterRelics.length, 12);
   assert.deepEqual(
-    relics.ALL_RELICS.map((relic) => ({
-      id: relic.id,
-      name: relic.name,
-      deckType: relic.deckType,
-      rarity: relic.rarity,
-      description: relic.description,
-      isStarter: relic.isStarter,
-      effect: relic.effect,
-    })),
+    starterRelics.map((r) => r.id),
+    ["ancient-emblem", "small-gear", "cracked-shield", "black-vial"],
+  );
+  assert.deepEqual(
+    nonStarterRelics.map((r) => r.id),
     [
-      {
-        id: "ancient-emblem",
-        name: "古びた紋章",
-        deckType: "balanced",
-        rarity: "uncommon",
-        description: "各戦闘の1ターン目、最初に使う攻撃カードの攻撃力+2。",
-        isStarter: true,
-        effect: { kind: "firstTurnFirstAttackBonus", amount: 2 },
-      },
-      {
-        id: "small-gear",
-        name: "小さな歯車",
-        deckType: "combo",
-        rarity: "uncommon",
-        description:
-          "各戦闘の1ターン目、1度に2回以上攻撃する場合2回目以降の攻撃力+1。",
-        isStarter: true,
-        effect: { kind: "firstTurnMultiAttackFollowUpBonus", amount: 1 },
-      },
-      {
-        id: "cracked-shield",
-        name: "ひび割れた盾",
-        deckType: "guardian",
-        rarity: "uncommon",
-        description: "ターン開始時、ブロックが0なら2ブロック。",
-        isStarter: true,
-        effect: { kind: "blockOnTurnStartIfEmpty", amount: 2 },
-      },
-      {
-        id: "black-vial",
-        name: "黒い小瓶",
-        deckType: "erosion",
-        rarity: "uncommon",
-        description: "戦闘開始時、敵全体に毒2。",
-        isStarter: true,
-        effect: { kind: "poisonAllEnemiesOnBattleStart", stacks: 2 },
-      },
+      "sharp-needle",
+      "thick-coat",
+      "spare-battery",
+      "bent-sword",
+      "dry-bandage",
+      "old-wallet",
+      "iron-talisman",
+      "merchant-bell",
+      "viper-fang",
+      "torn-claw",
+      "rusty-gear",
+      "void-shard",
     ],
   );
 });

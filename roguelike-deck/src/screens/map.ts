@@ -4,6 +4,7 @@
 import type { GameState } from "../core/types";
 import type { RendererCallbacks } from "../renderer/types/renderer";
 import { getSelectableNodeIds, findNode } from "../core/map";
+import { renderFloorMapSvg } from "../renderer/mapView";
 import { renderCodexOverlay } from "./codex";
 
 // ノード種別の日本語ラベル
@@ -13,6 +14,9 @@ const NODE_KIND_LABELS: Record<string, string> = {
   forge: "鍛冶所",
   shop: "ショップ",
   boss: "ボス",
+  treasure: "宝箱",
+  elite: "エリート",
+  event: "イベント",
 };
 
 /**
@@ -48,6 +52,28 @@ export function renderMapScreen(
   roomInfo.textContent = `現在：部屋 ${state.roomNumber} クリア済み`;
   screen.appendChild(roomInfo);
 
+  // 選択可能なノード id を取得
+  const selectableNodeIds = getSelectableNodeIds(
+    state.run.map,
+    state.run.currentNodeId,
+  );
+
+  // マップ全体図（SVG）
+  const mapViewWrapper = document.createElement("div");
+  mapViewWrapper.id = "map-view-wrapper";
+  screen.appendChild(mapViewWrapper);
+
+  const mapViewCleanup = renderFloorMapSvg(
+    mapViewWrapper,
+    state.run.map,
+    state.run.currentNodeId,
+    state.run.visitedNodeIds,
+    selectableNodeIds,
+    (nodeId) => {
+      callbacks.onSelectNode(nodeId);
+    },
+  );
+
   const nodeArea = document.createElement("section");
   nodeArea.id = "map-node-area";
 
@@ -57,12 +83,6 @@ export function renderMapScreen(
 
   // クリーンアップ用にハンドラーを記録
   const handlers: Array<{ btn: HTMLButtonElement; handler: () => void }> = [];
-
-  // 選択可能なノード id を取得
-  const selectableNodeIds = getSelectableNodeIds(
-    state.run.map,
-    state.run.currentNodeId,
-  );
 
   if (selectableNodeIds.length === 0) {
     const noNodes = document.createElement("p");
@@ -89,10 +109,16 @@ export function renderMapScreen(
 
       if (node.kind === "boss") {
         btn.classList.add("map-node-btn--boss");
+      } else if (node.kind === "elite") {
+        btn.classList.add("map-node-btn--elite");
+      } else if (node.kind === "treasure") {
+        btn.classList.add("map-node-btn--treasure");
       } else if (node.kind === "rest") {
         btn.classList.add("map-node-btn--rest");
       } else if (node.kind === "shop") {
         btn.classList.add("map-node-btn--shop");
+      } else if (node.kind === "event") {
+        btn.classList.add("map-node-btn--event");
       }
 
       const handler = () => {
@@ -133,6 +159,7 @@ export function renderMapScreen(
 
   // クリーンアップ関数
   return () => {
+    mapViewCleanup();
     for (const { btn, handler } of handlers) {
       btn.removeEventListener("click", handler);
     }

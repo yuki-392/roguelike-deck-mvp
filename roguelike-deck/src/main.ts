@@ -8,6 +8,7 @@ import {
   selectRewardCard,
   skipReward,
   claimRewardPotion,
+  claimRewardRelic,
   usePotion,
   selectNode,
   healAtRest,
@@ -20,6 +21,10 @@ import {
   leaveForge,
   leaveRest,
   selectDiscardCard,
+  selectTarget,
+  resolveEventChoice,
+  resolveEventForced,
+  leaveEvent,
 } from "./core/battle";
 import { applyForge, applyRelicConversion } from "./core/forge";
 import { defaultRng } from "./core/rng";
@@ -254,6 +259,11 @@ renderer.init({
     applyStateUpdate(playCard(state, cardId, defaultRng));
   },
 
+  onSelectTarget: (instanceId: string) => {
+    if (state === null) return;
+    applyStateUpdate(selectTarget(state, instanceId, defaultRng));
+  },
+
   onEndTurn: () => {
     if (state === null) return;
     applyStateUpdate(endPlayerTurn(state, defaultRng));
@@ -277,6 +287,11 @@ renderer.init({
   onClaimRewardPotion: () => {
     if (state === null) return;
     applyStateUpdate(claimRewardPotion(state));
+  },
+
+  onClaimRewardRelic: () => {
+    if (state === null) return;
+    applyStateUpdate(claimRewardRelic(state));
   },
 
   // ---- マップ画面コールバック ----
@@ -374,6 +389,26 @@ renderer.init({
   onSelectDiscardCard: (cardId: string) => {
     if (state === null) return;
     applyStateUpdate(selectDiscardCard(state, cardId));
+  },
+
+  // ---- イベントコールバック ----
+
+  onSelectEventChoice: (choiceIndex: number) => {
+    if (state === null) return;
+    applyStateUpdate(resolveEventChoice(state, choiceIndex, defaultRng));
+  },
+
+  onLeaveEvent: () => {
+    if (state === null) return;
+    if (
+      state.phase === "event" &&
+      state.activeEvent !== null &&
+      state.activeEvent.choices.length === 0
+    ) {
+      applyStateUpdate(resolveEventForced(state, defaultRng));
+      return;
+    }
+    applyStateUpdate(leaveEvent(state));
   },
 });
 

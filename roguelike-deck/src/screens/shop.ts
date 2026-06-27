@@ -43,6 +43,8 @@ export function renderShopScreen(
     return section;
   };
 
+  let hasAvailableAction = false;
+
   const cardSection = appendSection("カード購入");
   for (const { card, price } of state.shopItems.cards) {
     const button = document.createElement("button");
@@ -50,6 +52,7 @@ export function renderShopScreen(
     button.id = `shop-card-${card.id}`;
     button.textContent = `${card.name}（コスト:${describeCardCost(card)}）— ${price}G`;
     button.disabled = state.run.gold < price;
+    hasAvailableAction ||= !button.disabled;
     const handler = () => callbacks.onBuyShopCard(card.id);
     button.addEventListener("click", handler);
     handlers.push({ button, handler });
@@ -63,6 +66,7 @@ export function renderShopScreen(
     button.id = `shop-relic-${relic.id}`;
     button.textContent = `${relic.name} — ${price}G`;
     button.disabled = state.run.gold < price;
+    hasAvailableAction ||= !button.disabled;
     const handler = () => callbacks.onBuyShopRelic(relic.id);
     button.addEventListener("click", handler);
     handlers.push({ button, handler });
@@ -76,6 +80,7 @@ export function renderShopScreen(
     button.id = `shop-potion-${index}`;
     button.textContent = `${potion.name} — ${price}G`;
     button.disabled = state.run.gold < price || state.run.potions.length >= 2;
+    hasAvailableAction ||= !button.disabled;
     const handler = () => callbacks.onBuyShopPotion(index);
     button.addEventListener("click", handler);
     handlers.push({ button, handler });
@@ -95,20 +100,27 @@ export function renderShopScreen(
     button.id = `shop-remove-${card.id}`;
     button.textContent = `${card.name}を削除`;
     button.disabled = state.run.gold < state.shopItems.cardRemovalPrice;
+    hasAvailableAction ||= !button.disabled;
     const handler = () => callbacks.onRemoveShopCard(card.id);
     button.addEventListener("click", handler);
     handlers.push({ button, handler });
     removalSection.appendChild(button);
   }
 
-  const leaveButton = document.createElement("button");
-  leaveButton.type = "button";
-  leaveButton.id = "shop-leave-btn";
-  leaveButton.textContent = "マップへ戻る";
-  const leaveHandler = () => callbacks.onLeaveShop();
-  leaveButton.addEventListener("click", leaveHandler);
-  handlers.push({ button: leaveButton, handler: leaveHandler });
-  screen.appendChild(leaveButton);
+  if (!hasAvailableAction) {
+    const unavailable = document.createElement("p");
+    unavailable.textContent = "購入できるものがありません。";
+    screen.appendChild(unavailable);
+    container.appendChild(screen);
+    callbacks.onLeaveShop();
+
+    return () => {
+      for (const { button, handler } of handlers) {
+        button.removeEventListener("click", handler);
+      }
+      screen.remove();
+    };
+  }
 
   container.appendChild(screen);
 

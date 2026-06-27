@@ -1,7 +1,14 @@
 // バトルロジック（カードプレイ・敵ターン・勝敗判定）
 // DOM に一切依存しない純粋関数群
-import type { GameState, Player, RunState, RunStats, ShopItems } from "./types";
-import type { CardCost, CardEffect, StatusEffect } from "./types";
+import type {
+  Enemy,
+  GameState,
+  Player,
+  RunState,
+  RunStats,
+  ShopItems,
+} from "./types";
+import type { AttackTarget, CardCost, CardEffect, StatusEffect } from "./types";
 import type { Relic, RelicEffect } from "./types";
 import type { RunConfig } from "./types";
 import type { Card } from "./types";
@@ -15,10 +22,7 @@ import {
   lockEnemySlot,
   unlockOrb,
 } from "./codex";
-import {
-  buildDiscoveredCardNames,
-  registerCardUsage,
-} from "./card-codex";
+import { buildDiscoveredCardNames, registerCardUsage } from "./card-codex";
 import { getOrbById } from "./data/orbData";
 import { shuffleArray, type RngFn } from "./rng";
 import {
@@ -38,12 +42,19 @@ import {
 } from "./data/relics";
 import {
   createSlime,
-  createRandomNormalEnemy,
+  createNormalEnemyGroup,
   createBossEnemy,
+  createEliteEnemyGroup,
 } from "./data/enemies";
 import { drawCards, discardCard, discardHand } from "./deck";
-import { generateFloorMap, findNode, findParentNodeId } from "./map";
-import { createWeightedRewardPool } from "./reward";
+import { generateFloorMap, findNode } from "./map";
+import { createWeightedRewardPool, pickRelicReward } from "./reward";
+import {
+  applyChainFlagUpdate,
+  applyEventEffects,
+  selectEventDefinition,
+} from "./event";
+import { MAX_LOG_ENTRIES, MAX_POTION_SLOTS } from "./constants";
 
 // 報酬候補として選ぶカード枚数
 const REWARD_CARD_COUNT = 3;
@@ -53,18 +64,18 @@ const INITIAL_PLAYER_HP = 100;
 const INITIAL_MAX_ENERGY = 3;
 const INITIAL_DRAW_COUNT = 5;
 const TURN_DRAW_COUNT = 5;
-const MAX_LOG_ENTRIES = 20;
 
 // 報酬ゴールドの範囲（named constant）
 const REWARD_GOLD_MIN = 10;
 const REWARD_GOLD_MAX = 20;
+const ELITE_REWARD_GOLD_MIN = 25;
+const ELITE_REWARD_GOLD_MAX = 40;
 
 // 休憩所での HP 回復割合（最大HPの20%）
 const REST_HEAL_RATIO = 0.2;
 const SHOP_CARD_COUNT = 3;
 const SHOP_RELIC_COUNT = 2;
 const SHOP_CARD_REMOVAL_PRICE = 75;
-const MAX_POTION_SLOTS = 2; // ポーション所持上限
 const POTION_REWARD_CHANCE = 0.25; // 報酬フェーズでポーションが出る確率（デバッグ用: 本来は 0.25）
 
 const EMPTY_SHOP_ITEMS: ShopItems = {
@@ -186,6 +197,119 @@ function applyDamage(
   return { newHp, newBlock, blockedAmount };
 }
 
+function getLivingEnemies(state: GameState): readonly Enemy[] {
+  return state.enemies.filter((enemy) => enemy.currentHp > 0);
+}
+
+function updateEnemy(
+  state: GameState,
+  instanceId: string,
+  update: (enemy: Enemy) => Enemy,
+): GameState {
+  return {
+    ...state,
+    enemies: state.enemies.map((enemy) =>
+      enemy.instanceId === instanceId ? update(enemy) : enemy,
+    ),
+  };
+}
+
+function getDefaultAttackTarget(state: GameState): AttackTarget | null {
+  const livingEnemies = getLivingEnemies(state);
+  if (livingEnemies.length === 0) return null;
+  // selectedEnemyInstanceId が生存敵を指している場合はそれを使う
+  if (state.selectedEnemyInstanceId !== null) {
+    const selected = livingEnemies.find(
+      (e) => e.instanceId === state.selectedEnemyInstanceId,
+    );
+    if (selected !== undefined) {
+      return { kind: "single", instanceId: selected.instanceId };
+    }
+  }
+  // フォールバック: 先頭の生存敵
+  const [first] = livingEnemies;
+  return { kind: "single", instanceId: first.instanceId };
+}
+
+/**
+ * selectedEnemyInstanceId を生存敵に合わせて更新する
+ * 現在のターゲットが死亡していた場合、先頭の生存敵に移す
+ */
+function reconcileSelectedTarget(state: GameState): GameState {
+  const livingEnemies = getLivingEnemies(state);
+  if (livingEnemies.length === 0) {
+    return { ...state, selectedEnemyInstanceId: null };
+  }
+  // 現在のターゲットが生存しているならそのまま
+  if (
+    state.selectedEnemyInstanceId !== null &&
+    livingEnemies.some((e) => e.instanceId === state.selectedEnemyInstanceId)
+  ) {
+    return state;
+  }
+  // 生存敵の先頭に移す
+  return { ...state, selectedEnemyInstanceId: livingEnemies[0].instanceId };
+}
+
+function getCardAttackTarget(card: Card): AttackTarget | undefined {
+  for (const effect of card.effects) {
+    if (
+      effect.kind === "attack" ||
+      effect.kind === "multiAttack" ||
+      effect.kind === "conditionalAttack"
+    ) {
+      return effect.target;
+    }
+  }
+  return undefined;
+}
+
+function resolveAttackTarget(
+  state: GameState,
+  effectTarget: AttackTarget | undefined,
+): AttackTarget | null {
+  if (effectTarget !== undefined) return effectTarget;
+  return getDefaultAttackTarget(state);
+}
+
+function applyDamageToEnemy(
+  state: GameState,
+  enemy: Enemy,
+  damage: number,
+  logMessage: (newHp: number) => string,
+): GameState {
+  const oldHp = enemy.currentHp;
+  const { newHp, newBlock } = applyDamage(
+    enemy.currentHp,
+    enemy.block,
+    damage,
+    state.player.statuses,
+    enemy.statuses,
+  );
+  const damageDealt = oldHp - newHp;
+  return {
+    ...updateEnemy(state, enemy.instanceId, (targetEnemy) => ({
+      ...targetEnemy,
+      currentHp: newHp,
+      block: newBlock,
+    })),
+    log: addLog(state.log, logMessage(newHp)),
+    run: addStats(state.run, { totalDamageDealt: damageDealt }),
+  };
+}
+
+function getTargetEnemies(
+  state: GameState,
+  target: AttackTarget,
+): readonly Enemy[] {
+  if (target.kind === "allEnemies") return getLivingEnemies(state);
+  const enemy = state.enemies.find(
+    (candidate) =>
+      candidate.instanceId === target.instanceId && candidate.currentHp > 0,
+  );
+  return enemy === undefined ? [] : [enemy];
+}
+
 /**
  * RunStats を更新するヘルパー（イミュータブル）
  */
@@ -213,123 +337,181 @@ function addStats(run: RunState, partial: Partial<RunStats>): RunState {
   };
 }
 
+function processSingleEnemyDefeat(
+  state: GameState,
+  defeatedEnemy: Enemy,
+): GameState {
+  const defeatedEnemyId = defeatedEnemy.id;
+  const isFirstEncounter = !state.run.encounteredEnemyIds.has(defeatedEnemyId);
+  let nextState = addCodexPoints(state, defeatedEnemyId, 10);
+  if (isFirstEncounter) {
+    nextState = addCodexPoints(nextState, defeatedEnemyId, 10);
+  }
+
+  const orbIdsBefore = nextState.run.acquiredOrbIds;
+  nextState = unlockOrb(nextState, defeatedEnemyId);
+  const newlyUnlockedOrbs = nextState.run.acquiredOrbIds
+    .filter((id) => !orbIdsBefore.includes(id))
+    .map((id) => getOrbById(id))
+    .filter((orb): orb is NonNullable<typeof orb> => orb !== undefined);
+
+  const newEncounteredIds = new Set(nextState.run.encounteredEnemyIds);
+  newEncounteredIds.add(defeatedEnemyId);
+
+  return {
+    ...nextState,
+    enemies: nextState.enemies.filter(
+      (enemy) => enemy.instanceId !== defeatedEnemy.instanceId,
+    ),
+    run: { ...nextState.run, encounteredEnemyIds: newEncounteredIds },
+    lastDefeatedEnemyNames: [
+      ...nextState.lastDefeatedEnemyNames,
+      defeatedEnemy.name,
+    ],
+    rewardUnlockedOrbs: [...nextState.rewardUnlockedOrbs, ...newlyUnlockedOrbs],
+  };
+}
+
+function processDefeatedEnemies(state: GameState): GameState {
+  let nextState = state;
+  for (const enemy of state.enemies) {
+    if (enemy.currentHp <= 0) {
+      nextState = processSingleEnemyDefeat(nextState, enemy);
+    }
+  }
+  return nextState;
+}
+
 /**
  * 勝敗判定を行い、GamePhase を更新した GameState を返す
- * - ボス（tier === "boss"）撃破 → "result" フェーズ（リザルト表示）
- * - 通常敵撃破 → "reward" フェーズ（報酬候補カードを生成）
+ * - ボス全滅 → "result" フェーズ（リザルト表示）
+ * - 通常敵全滅 → "reward" フェーズ（報酬候補カードを生成）
  * - プレイヤー HP ≤ 0 → "result" フェーズ（敗北表示）
  */
-function checkPhase(state: GameState, rng: RngFn): GameState {
-  if (state.enemy.currentHp <= 0) {
-    if (state.enemy.tier === "boss") {
-      // ボス撃破 → 勝利リザルト表示（自傷でHP0でも勝利を優先）
-      return {
-        ...state,
-        phase: "result",
-        outcome: "victory",
-        log: addLog(state.log, "ボスを撃破した！ゲームクリア！"),
-      };
+function checkBattleEnd(state: GameState, rng: RngFn): GameState {
+  const stateAfterDefeats = processDefeatedEnemies(state);
+  if (stateAfterDefeats.enemies.length > 0) {
+    if (stateAfterDefeats.player.currentHp <= 0) {
+      return { ...stateAfterDefeats, phase: "result", outcome: "defeat" };
     }
-    // 通常敵撃破 → 図鑑ポイント加算
-    const defeatedEnemyId = state.enemy.id;
-    const isFirstEncounter =
-      !state.run.encounteredEnemyIds.has(defeatedEnemyId);
-    let stateAfterCodex = state;
-    // 撃破ポイント
-    stateAfterCodex = addCodexPoints(stateAfterCodex, defeatedEnemyId, 10);
-    // 初遭遇ボーナス
-    if (isFirstEncounter) {
-      stateAfterCodex = addCodexPoints(stateAfterCodex, defeatedEnemyId, 10);
+    // 倒した敵がターゲットだった場合、生存敵に移す
+    return reconcileSelectedTarget(stateAfterDefeats);
+  }
+
+  const defeatedBoss =
+    state.enemies.length > 0 &&
+    state.enemies.every((enemy) => enemy.tier === "boss");
+  if (defeatedBoss) {
+    let bossVictoryState: GameState = {
+      ...stateAfterDefeats,
+      phase: "result",
+      outcome: "victory",
+      pendingTargetCardId: null,
+      log: addLog(stateAfterDefeats.log, "ボスを撃破した！ゲームクリア！"),
+    };
+    for (const relic of bossVictoryState.relics) {
+      if (relic.effect.kind === "healOnBattleWin") {
+        bossVictoryState = applyRelicEffect(
+          bossVictoryState,
+          relic.effect,
+          relic.name,
+        );
+      }
     }
-    // オーブ解放チェック（解放前後の acquiredOrbIds を比較して新規解放オーブを検出）
-    const orbIdsBefore = stateAfterCodex.run.acquiredOrbIds;
-    stateAfterCodex = unlockOrb(stateAfterCodex, defeatedEnemyId);
-    const newlyUnlockedOrbId =
-      stateAfterCodex.run.acquiredOrbIds.find(
-        (id) => !orbIdsBefore.includes(id),
-      ) ?? null;
-    const rewardUnlockedOrb =
-      newlyUnlockedOrbId !== null
-        ? (getOrbById(newlyUnlockedOrbId) ?? null)
-        : null;
-    // 撃破後に encounteredEnemyIds へ追加（初遭遇判定は追加前に済ませる）
-    const newEncounteredIds = new Set(stateAfterCodex.run.encounteredEnemyIds);
-    newEncounteredIds.add(defeatedEnemyId);
-    stateAfterCodex = {
-      ...stateAfterCodex,
-      run: { ...stateAfterCodex.run, encounteredEnemyIds: newEncounteredIds },
-    };
-
-    // 通常敵撃破 → 報酬ゴールド加算 + 報酬選択へ
-    const rewardGold =
-      REWARD_GOLD_MIN +
-      Math.floor(rng() * (REWARD_GOLD_MAX - REWARD_GOLD_MIN + 1));
-    const newRun = addStats(
-      { ...stateAfterCodex.run, gold: stateAfterCodex.run.gold + rewardGold },
-      {},
-    );
-
-    // 報酬フェーズ移行前に hand + discard をすべて deck に統合する
-    // （これにより reward/map/rest フェーズ中は player.deck が全カードを保持）
-    const mergedDeck = [
-      ...stateAfterCodex.player.deck,
-      ...stateAfterCodex.player.hand,
-      ...stateAfterCodex.player.discard,
-    ];
-    const newPlayer = {
-      ...stateAfterCodex.player,
-      deck: mergedDeck,
-      hand: [],
-      discard: [],
-    };
-
-    const pool = createRewardPool();
-    const weightedPool = createWeightedRewardPool(
-      pool,
-      stateAfterCodex.run.startingDeckType,
-    );
-    const rewardCandidates = takeUniqueCards(
-      shuffleArray(weightedPool, rng),
-      REWARD_CARD_COUNT,
-    );
-
-    // 25%の確率でポーションを報酬として提示（所持枠に空きがある場合のみ）
-    // rng を常に2回引いてから条件判定することでシード再現性を保つ
-    const potionRoll = rng();
-    const potionSelectRoll = rng();
-    const canReceivePotion =
-      stateAfterCodex.run.potions.length < MAX_POTION_SLOTS &&
-      potionRoll < POTION_REWARD_CHANCE;
-    const rewardPotion: Potion | null = canReceivePotion
-      ? (ALL_POTIONS[Math.floor(potionSelectRoll * ALL_POTIONS.length)] ?? null)
-      : null;
-
-    const potionLog =
-      rewardPotion !== null
-        ? `【ポーション報酬】${rewardPotion.name}が出現した。`
-        : "";
-
-    return {
-      ...stateAfterCodex,
-      player: newPlayer,
-      run: newRun,
-      phase: "reward",
-      rewardCandidates,
-      rewardGold,
-      rewardPotion,
-      rewardUnlockedOrb,
-      lastDefeatedEnemyName: stateAfterCodex.enemy.name,
-      log: addLog(
-        stateAfterCodex.log,
-        `${stateAfterCodex.enemy.name}を倒した！${rewardGold}ゴールドを得た。報酬カードを1枚選んでください。${potionLog}`,
-      ),
-    };
+    return bossVictoryState;
   }
-  if (state.player.currentHp <= 0) {
-    // 敗北 → 敗北リザルト表示
-    return { ...state, phase: "result", outcome: "defeat" };
+
+  if (stateAfterDefeats.player.currentHp <= 0) {
+    return { ...stateAfterDefeats, phase: "result", outcome: "defeat" };
   }
-  return state;
+
+  const isEliteBattle =
+    state.enemies.length > 0 && state.enemies.every((e) => e.tier === "elite");
+  const rewardGoldMin = isEliteBattle ? ELITE_REWARD_GOLD_MIN : REWARD_GOLD_MIN;
+  const rewardGoldMax = isEliteBattle ? ELITE_REWARD_GOLD_MAX : REWARD_GOLD_MAX;
+  const baseRewardGold =
+    rewardGoldMin + Math.floor(rng() * (rewardGoldMax - rewardGoldMin + 1));
+  const goldBonusPercent = stateAfterDefeats.relics.reduce(
+    (sum, relic) =>
+      relic.effect.kind === "goldGainBonus"
+        ? sum + relic.effect.percentBonus
+        : sum,
+    0,
+  );
+  const rewardGold = Math.floor(baseRewardGold * (1 + goldBonusPercent / 100));
+  const newRun = addStats(
+    { ...stateAfterDefeats.run, gold: stateAfterDefeats.run.gold + rewardGold },
+    {},
+  );
+
+  const mergedDeck = [
+    ...stateAfterDefeats.player.deck,
+    ...stateAfterDefeats.player.hand,
+    ...stateAfterDefeats.player.discard,
+  ];
+  const newPlayer = {
+    ...stateAfterDefeats.player,
+    deck: mergedDeck,
+    hand: [],
+    discard: [],
+  };
+
+  const pool = createRewardPool();
+  const weightedPool = createWeightedRewardPool(
+    pool,
+    stateAfterDefeats.run.startingDeckType,
+  );
+  const rewardCandidates = takeUniqueCards(
+    shuffleArray(weightedPool, rng),
+    REWARD_CARD_COUNT,
+  );
+
+  const potionRoll = rng();
+  const potionSelectRoll = rng();
+  const canReceivePotion =
+    stateAfterDefeats.run.potions.length < MAX_POTION_SLOTS &&
+    potionRoll < POTION_REWARD_CHANCE;
+  const rewardPotion: Potion | null = canReceivePotion
+    ? (ALL_POTIONS[Math.floor(potionSelectRoll * ALL_POTIONS.length)] ?? null)
+    : null;
+  const rewardRelic = isEliteBattle
+    ? pickRelicReward(
+        rng,
+        new Set(stateAfterDefeats.relics.map((relic) => relic.id)),
+      )
+    : null;
+
+  const defeatedNames = stateAfterDefeats.lastDefeatedEnemyNames.join("、");
+  const potionLog =
+    rewardPotion !== null
+      ? `【ポーション報酬】${rewardPotion.name}が出現した。`
+      : "";
+  const relicLog =
+    rewardRelic !== null ? `【遺物報酬】${rewardRelic.name}が出現した。` : "";
+
+  let rewardState: GameState = {
+    ...stateAfterDefeats,
+    player: newPlayer,
+    run: newRun,
+    phase: "reward",
+    rewardCandidates,
+    rewardGold,
+    rewardPotion,
+    rewardRelic,
+    pendingTargetCardId: null,
+    log: addLog(
+      stateAfterDefeats.log,
+      `${defeatedNames}を倒した！${rewardGold}ゴールドを得た。報酬カードを1枚選んでください。${potionLog}${relicLog}`,
+    ),
+  };
+
+  for (const relic of rewardState.relics) {
+    if (relic.effect.kind === "healOnBattleWin") {
+      rewardState = applyRelicEffect(rewardState, relic.effect, relic.name);
+    }
+  }
+
+  return rewardState;
 }
 
 /**
@@ -389,6 +571,18 @@ function getRelicShopPrice(relic: Relic): number {
 }
 
 function createShopItems(state: GameState, rng: RngFn): ShopItems {
+  const discountPercent = state.relics.reduce(
+    (sum, relic) =>
+      relic.effect.kind === "shopPriceDiscount"
+        ? sum + relic.effect.percent
+        : sum,
+    0,
+  );
+  const applyDiscount = (price: number): number =>
+    discountPercent > 0
+      ? Math.max(1, Math.floor(price * (1 - discountPercent / 100)))
+      : price;
+
   const weightedCards = createWeightedRewardPool(
     createRewardPool().filter((card) => !isOriginalCard(card)),
     state.run.startingDeckType,
@@ -396,7 +590,7 @@ function createShopItems(state: GameState, rng: RngFn): ShopItems {
   const cards = takeUniqueCards(
     shuffleArray(weightedCards, rng),
     SHOP_CARD_COUNT,
-  ).map((card) => ({ card, price: getCardShopPrice(card) }));
+  ).map((card) => ({ card, price: applyDiscount(getCardShopPrice(card)) }));
   const relics = shuffleArray(
     ALL_RELICS.filter(
       (relic) =>
@@ -406,13 +600,16 @@ function createShopItems(state: GameState, rng: RngFn): ShopItems {
     rng,
   )
     .slice(0, SHOP_RELIC_COUNT)
-    .map((relic) => ({ relic, price: getRelicShopPrice(relic) }));
+    .map((relic) => ({
+      relic,
+      price: applyDiscount(getRelicShopPrice(relic)),
+    }));
 
   // ショップに1種類のポーションを陳列（所持していないものからランダム）
   const availablePotions = shuffleArray([...ALL_POTIONS], rng);
   const potions = availablePotions
     .slice(0, 1)
-    .map((potion) => ({ potion, price: potion.price }));
+    .map((potion) => ({ potion, price: applyDiscount(potion.price) }));
 
   return {
     cards,
@@ -469,7 +666,7 @@ function getEnergyCost(cost: CardCost): number {
 }
 
 function isFirstBattleTurn(state: GameState): boolean {
-  return state.enemy.battleTurn === 0;
+  return state.enemies.every((enemy) => enemy.battleTurn === 0);
 }
 
 function getFirstAttackRelics(state: GameState): readonly Relic[] {
@@ -519,54 +716,99 @@ function addRelicActivationLog(
 }
 
 /**
+ * 遺物による攻撃ダメージのパッシブボーナスを合計する
+ * - 鋭い針: 全攻撃カード+amount
+ * - 曲がった剣: baseCost >= minCost の攻撃カード+amount
+ */
+function sumRelicPassiveAttackBonus(
+  state: GameState,
+  playedCard: Card | undefined,
+): number {
+  let bonus = 0;
+  for (const relic of state.relics) {
+    if (relic.effect.kind === "attackDamageBonus") {
+      bonus += relic.effect.amount;
+    } else if (relic.effect.kind === "highCostAttackDamageBonus") {
+      const baseCost =
+        playedCard !== undefined ? getEnergyCost(playedCard.cost) : 0;
+      if (baseCost >= relic.effect.minCost) {
+        bonus += relic.effect.amount;
+      }
+    }
+  }
+  return bonus;
+}
+
+/**
+ * プレイヤーが敵へ毒を付与するときのボーナス（毒蛇の牙）
+ */
+function getPoisonApplyBonus(state: GameState): number {
+  return state.relics.reduce(
+    (sum, relic) =>
+      relic.effect.kind === "bonusPoisonOnApply"
+        ? sum + relic.effect.bonus
+        : sum,
+    0,
+  );
+}
+
+/**
+ * プレイヤーが敵へ裂傷を付与するときのボーナス（裂けた爪）
+ */
+function getLacerationApplyBonus(state: GameState): number {
+  return state.relics.reduce(
+    (sum, relic) =>
+      relic.effect.kind === "bonusLacerationOnApply"
+        ? sum + relic.effect.bonus
+        : sum,
+    0,
+  );
+}
+
+/**
  * CardEffect を適用して state を更新する
+ * playedCard: このエフェクトを持つカード（遺物のコスト判定に使用）
  */
 function applyEffect(
   state: GameState,
   effect: CardEffect,
   rng: RngFn,
+  playedCard?: Card,
 ): GameState {
   const firstAttackRelics = getFirstAttackRelics(state);
   const firstAttackRelicBonus = sumRelicEffectAmounts(
     firstAttackRelics,
     "firstTurnFirstAttackBonus",
   );
+  const passiveRelicBonus = sumRelicPassiveAttackBonus(state, playedCard);
 
   switch (effect.kind) {
     case "attack": {
       const attackTotal =
-        effect.amount + state.attackBonusThisTurn + firstAttackRelicBonus;
-      const oldEnemyHp = state.enemy.currentHp;
-      const { newHp, newBlock } = applyDamage(
-        state.enemy.currentHp,
-        state.enemy.block,
-        attackTotal,
-        state.player.statuses,
-        state.enemy.statuses,
-      );
-      const damageDealt = oldEnemyHp - newHp;
-      const newEnemy = { ...state.enemy, currentHp: newHp, block: newBlock };
+        effect.amount +
+        state.attackBonusThisTurn +
+        firstAttackRelicBonus +
+        passiveRelicBonus;
+      const target = resolveAttackTarget(state, effect.target);
+      if (target === null) return state;
       const bonusNote =
         state.attackBonusThisTurn > 0
           ? `（攻撃ポーション+${state.attackBonusThisTurn}）`
           : "";
-      const newLog = addLog(
-        state.log,
-        `プレイヤーが${attackTotal}ダメージを与えた${bonusNote}。敵HP: ${newHp}`,
-      );
-      const nextState = {
-        ...state,
-        enemy: newEnemy,
-        log: newLog,
-        run: addStats(state.run, { totalDamageDealt: damageDealt }),
-      };
-      return addRelicActivationLog(
-        nextState,
-        firstAttackRelics,
-        (relic) =>
-          relic.effect.kind === "firstTurnFirstAttackBonus"
-            ? `1ターン目の最初の攻撃カードを+${relic.effect.amount}した。`
-            : "",
+      let nextState = state;
+      for (const enemy of getTargetEnemies(nextState, target)) {
+        nextState = applyDamageToEnemy(
+          nextState,
+          enemy,
+          attackTotal,
+          (newHp) =>
+            `プレイヤーが${attackTotal}ダメージを与えた${bonusNote}。${enemy.name}HP: ${newHp}`,
+        );
+      }
+      return addRelicActivationLog(nextState, firstAttackRelics, (relic) =>
+        relic.effect.kind === "firstTurnFirstAttackBonus"
+          ? `1ターン目の最初の攻撃カードを+${relic.effect.amount}した。`
+          : "",
       );
     }
 
@@ -606,20 +848,42 @@ function applyEffect(
     }
 
     case "applyStatus": {
-      // 敵にステータスを付与する
-      const currentStacks = state.enemy.statuses.get(effect.status.kind) ?? 0;
-      const newStacks = currentStacks + effect.stacks;
-      const newStatuses = new Map(state.enemy.statuses);
-      newStatuses.set(effect.status.kind, newStacks);
-      const newEnemy = { ...state.enemy, statuses: newStatuses };
+      const target = getDefaultAttackTarget(state);
+      if (target === null || target.kind !== "single") return state;
+      const enemy = state.enemies.find(
+        (candidate) => candidate.instanceId === target.instanceId,
+      );
+      if (enemy === undefined) return state;
+      const poisonBonus =
+        effect.status.kind === "poison" ? getPoisonApplyBonus(state) : 0;
+      const lacerationBonus =
+        effect.status.kind === "laceration"
+          ? getLacerationApplyBonus(state)
+          : 0;
+      const totalStacks = effect.stacks + poisonBonus + lacerationBonus;
+      const result = addStatusStacks(
+        enemy.statuses,
+        effect.status,
+        totalStacks,
+      );
       const newLog = addLog(
         state.log,
-        `敵に${effect.status.kind}を${effect.stacks}付与した。（合計: ${newStacks}）`,
+        `${enemy.name}に${effect.status.kind}を${totalStacks}付与した。（合計: ${result.totalStacks}）`,
       );
-      return { ...state, enemy: newEnemy, log: newLog };
+      return {
+        ...updateEnemy(state, enemy.instanceId, (targetEnemy) => ({
+          ...targetEnemy,
+          statuses: result.statuses,
+        })),
+        log: newLog,
+      };
     }
 
     case "multiAttack": {
+      const target = resolveAttackTarget(state, effect.target);
+      if (target === null) return state;
+      const targets = getTargetEnemies(state, target);
+      if (targets.length === 0) return state;
       const followUpRelics = getMultiAttackFollowUpRelics(state);
       const followUpRelicBonus = sumRelicEffectAmounts(
         followUpRelics,
@@ -629,34 +893,21 @@ function applyEffect(
       let didLogFollowUpRelics = false;
       let newState = state;
       for (let i = 0; i < effect.times; i++) {
+        const currentTarget = getTargetEnemies(newState, target)[0];
+        if (currentTarget === undefined) break;
         const hitDamage =
           effect.amount +
           state.attackBonusThisTurn +
           firstAttackRelicBonus +
+          passiveRelicBonus +
           (i > 0 ? followUpRelicBonus : 0);
-        const oldHp = newState.enemy.currentHp;
-        const { newHp, newBlock } = applyDamage(
-          newState.enemy.currentHp,
-          newState.enemy.block,
+        newState = applyDamageToEnemy(
+          newState,
+          currentTarget,
           hitDamage,
-          newState.player.statuses,
-          newState.enemy.statuses,
+          (newHp) =>
+            `プレイヤーが${hitDamage}ダメージを与えた。${currentTarget.name}HP: ${newHp}`,
         );
-        const damageDealt = oldHp - newHp;
-        const newEnemy = {
-          ...newState.enemy,
-          currentHp: newHp,
-          block: newBlock,
-        };
-        newState = {
-          ...newState,
-          enemy: newEnemy,
-          log: addLog(
-            newState.log,
-            `プレイヤーが${hitDamage}ダメージを与えた。敵HP: ${newHp}`,
-          ),
-          run: addStats(newState.run, { totalDamageDealt: damageDealt }),
-        };
         if (!didLogFirstAttackRelics) {
           newState = addRelicActivationLog(
             newState,
@@ -669,17 +920,13 @@ function applyEffect(
           didLogFirstAttackRelics = true;
         }
         if (i > 0 && !didLogFollowUpRelics) {
-          newState = addRelicActivationLog(
-            newState,
-            followUpRelics,
-            (relic) =>
-              relic.effect.kind === "firstTurnMultiAttackFollowUpBonus"
-                ? `1ターン目の複数回攻撃の2回目以降を+${relic.effect.amount}した。`
-                : "",
+          newState = addRelicActivationLog(newState, followUpRelics, (relic) =>
+            relic.effect.kind === "firstTurnMultiAttackFollowUpBonus"
+              ? `1ターン目の複数回攻撃の2回目以降を+${relic.effect.amount}した。`
+              : "",
           );
           didLogFollowUpRelics = true;
         }
-        if (newHp <= 0) break;
       }
       return newState;
     }
@@ -708,36 +955,26 @@ function applyEffect(
         effect.baseAmount +
         conditionalBonus +
         state.attackBonusThisTurn +
-        firstAttackRelicBonus;
-      const oldEnemyHp = state.enemy.currentHp;
-      const { newHp, newBlock } = applyDamage(
-        state.enemy.currentHp,
-        state.enemy.block,
-        total,
-        state.player.statuses,
-        state.enemy.statuses,
-      );
-      const damageDealt = oldEnemyHp - newHp;
-      const newEnemy = { ...state.enemy, currentHp: newHp, block: newBlock };
+        firstAttackRelicBonus +
+        passiveRelicBonus;
+      const target = resolveAttackTarget(state, effect.target);
+      if (target === null) return state;
       const bonusNote =
         conditionalBonus > 0 ? `（追撃+${conditionalBonus}）` : "";
-      const newLog = addLog(
-        state.log,
-        `プレイヤーが${total}ダメージを与えた${bonusNote}。敵HP: ${newHp}`,
-      );
-      const nextState = {
-        ...state,
-        enemy: newEnemy,
-        log: newLog,
-        run: addStats(state.run, { totalDamageDealt: damageDealt }),
-      };
-      return addRelicActivationLog(
-        nextState,
-        firstAttackRelics,
-        (relic) =>
-          relic.effect.kind === "firstTurnFirstAttackBonus"
-            ? `1ターン目の最初の攻撃カードを+${relic.effect.amount}した。`
-            : "",
+      let nextState = state;
+      for (const enemy of getTargetEnemies(nextState, target)) {
+        nextState = applyDamageToEnemy(
+          nextState,
+          enemy,
+          total,
+          (newHp) =>
+            `プレイヤーが${total}ダメージを与えた${bonusNote}。${enemy.name}HP: ${newHp}`,
+        );
+      }
+      return addRelicActivationLog(nextState, firstAttackRelics, (relic) =>
+        relic.effect.kind === "firstTurnFirstAttackBonus"
+          ? `1ターン目の最初の攻撃カードを+${relic.effect.amount}した。`
+          : "",
       );
     }
 
@@ -766,19 +1003,30 @@ function applyEffect(
     }
 
     case "amplifyEnemyStatus": {
-      const newStatuses = new Map(state.enemy.statuses);
+      const target = getDefaultAttackTarget(state);
+      if (target === null || target.kind !== "single") return state;
+      const enemy = state.enemies.find(
+        (candidate) => candidate.instanceId === target.instanceId,
+      );
+      if (enemy === undefined) return state;
+      const newStatuses = new Map(enemy.statuses);
       const poisonStacks = newStatuses.get("poison") ?? 0;
       const lacerationStacks = newStatuses.get("laceration") ?? 0;
       if (poisonStacks > 0)
         newStatuses.set("poison", poisonStacks + effect.amount);
       if (lacerationStacks > 0)
         newStatuses.set("laceration", lacerationStacks + effect.amount);
-      const newEnemy = { ...state.enemy, statuses: newStatuses };
       const newLog = addLog(
         state.log,
-        `敵の毒と裂傷を${effect.amount}増幅した。`,
+        `${enemy.name}の毒と裂傷を${effect.amount}増幅した。`,
       );
-      return { ...state, enemy: newEnemy, log: newLog };
+      return {
+        ...updateEnemy(state, enemy.instanceId, (targetEnemy) => ({
+          ...targetEnemy,
+          statuses: newStatuses,
+        })),
+        log: newLog,
+      };
     }
 
     default: {
@@ -821,24 +1069,95 @@ function applyRelicEffect(
     }
 
     case "poisonAllEnemiesOnBattleStart": {
-      const result = addStatusStacks(
-        state.enemy.statuses,
-        { kind: "poison" },
-        effect.stacks,
-      );
+      const enemies = state.enemies.map((enemy) => {
+        const result = addStatusStacks(
+          enemy.statuses,
+          { kind: "poison" },
+          effect.stacks,
+        );
+        return { ...enemy, statuses: result.statuses };
+      });
       return {
         ...state,
-        enemy: { ...state.enemy, statuses: result.statuses },
+        enemies,
         log: addLog(
           state.log,
-          `【${relicName}】戦闘開始時に敵へpoisonを${effect.stacks}付与した。（合計: ${result.totalStacks}）`,
+          `【${relicName}】戦闘開始時に全ての敵へpoisonを${effect.stacks}付与した。`,
         ),
         run: addStats(state.run, { relicEffectCount: 1 }),
       };
     }
 
+    case "blockOnBattleStart": {
+      const newBlock = state.player.block + effect.amount;
+      return {
+        ...state,
+        player: { ...state.player, block: newBlock },
+        log: addLog(
+          state.log,
+          `【${relicName}】戦闘開始時に${effect.amount}ブロックを得た。ブロック: ${newBlock}`,
+        ),
+        run: addStats(state.run, { relicEffectCount: 1 }),
+      };
+    }
+
+    case "extraEnergyOnFirstTurn": {
+      const newEnergy = state.player.energy + effect.amount;
+      return {
+        ...state,
+        player: { ...state.player, energy: newEnergy },
+        log: addLog(
+          state.log,
+          `【${relicName}】1ターン目のエナジーを+${effect.amount}した。エナジー: ${newEnergy}`,
+        ),
+        run: addStats(state.run, { relicEffectCount: 1 }),
+      };
+    }
+
+    case "blockOnEliteBattleStart": {
+      const isEliteBattle = state.enemies.some((e) => e.tier === "elite");
+      if (!isEliteBattle) return state;
+      const newBlock = state.player.block + effect.amount;
+      return {
+        ...state,
+        player: { ...state.player, block: newBlock },
+        log: addLog(
+          state.log,
+          `【${relicName}】エリート戦開始時に${effect.amount}ブロックを得た。ブロック: ${newBlock}`,
+        ),
+        run: addStats(state.run, { relicEffectCount: 1 }),
+      };
+    }
+
+    case "healOnBattleWin": {
+      const newHp = Math.min(
+        state.player.maxHp,
+        state.player.currentHp + effect.amount,
+      );
+      const healed = newHp - state.player.currentHp;
+      if (healed <= 0) return state;
+      return {
+        ...state,
+        player: { ...state.player, currentHp: newHp },
+        log: addLog(
+          state.log,
+          `【${relicName}】戦闘終了時にHPを${healed}回復した。HP: ${newHp}`,
+        ),
+        run: addStats(state.run, { relicEffectCount: 1 }),
+      };
+    }
+
+    // パッシブ効果（発火タイミングは呼び出し側で制御）
     case "firstTurnFirstAttackBonus":
     case "firstTurnMultiAttackFollowUpBonus":
+    case "attackDamageBonus":
+    case "highCostAttackDamageBonus":
+    case "goldGainBonus":
+    case "shopPriceDiscount":
+    case "bonusPoisonOnApply":
+    case "bonusLacerationOnApply":
+    case "damageAllOnZeroCostCount":
+    case "drawOnOriginalCardFirstUse":
       return state;
 
     default: {
@@ -859,8 +1178,20 @@ function applyRelicEffect(
 function initBattleState(state: GameState): GameState {
   let newState = state;
 
+  // バトル開始時に先頭の生存敵をデフォルトターゲットとして設定
+  const firstEnemy = newState.enemies[0];
+  newState = {
+    ...newState,
+    selectedEnemyInstanceId: firstEnemy?.instanceId ?? null,
+  };
+
   for (const relic of newState.relics) {
-    if (relic.effect.kind === "poisonAllEnemiesOnBattleStart") {
+    if (
+      relic.effect.kind === "poisonAllEnemiesOnBattleStart" ||
+      relic.effect.kind === "blockOnBattleStart" ||
+      relic.effect.kind === "extraEnergyOnFirstTurn" ||
+      relic.effect.kind === "blockOnEliteBattleStart"
+    ) {
       newState = applyRelicEffect(newState, relic.effect, relic.name);
     }
   }
@@ -953,14 +1284,17 @@ export function startRun(
     statuses: new Map(),
   };
 
-  const initialEnemy = createSlime();
+  const initialEnemy = createSlime(config.trialLevel, "slime-start");
 
   // PersistentData から図鑑状態を復元
   const codexPoints = persistentData?.codexPoints ?? {};
   const acquiredOrbIds = persistentData?.acquiredOrbIds ?? [];
   const initialCodexState = buildCodexState(codexPoints, acquiredOrbIds);
   const discoveredCardNames = buildDiscoveredCardNames(
-    persistentData === undefined ? [] : persistentData.discoveredCardNames,
+    persistentData === undefined ||
+      persistentData.discoveredCardNames === undefined
+      ? []
+      : persistentData.discoveredCardNames,
   );
 
   // フロアマップを生成し RunState を初期化する
@@ -969,7 +1303,7 @@ export function startRun(
     map: floorMap,
     currentNodeId: "", // ラン開始時は未選択
     visitedNodeIds: new Set<string>(),
-    gold: 0,
+    gold: 100,
     stats: {
       totalDamageDealt: 0,
       totalDamageBlocked: 0,
@@ -985,18 +1319,19 @@ export function startRun(
     encounteredEnemyIds: new Set<string>(),
     lastBattleDamageReceived: 0,
     trialLevel: config.trialLevel,
+    chainEventFlags: new Map<string, number>(),
   };
 
   const initialState: GameState = {
     player: initialPlayer,
-    enemy: initialEnemy,
+    enemies: [initialEnemy],
     turn: "player",
     phase: "battle",
     outcome: null,
     log: ["ラン開始！バトル開始！"],
     rewardCandidates: [],
     rewardGold: 0,
-    lastDefeatedEnemyName: "",
+    lastDefeatedEnemyNames: [],
     roomNumber: 1,
     relics: [starterRelic],
     cardsPlayedThisTurn: 0,
@@ -1006,9 +1341,15 @@ export function startRun(
     shopItems: EMPTY_SHOP_ITEMS,
     run: initialRunState,
     pendingDiscard: null,
+    pendingTargetCardId: null,
+    selectedEnemyInstanceId: null, // initBattleState で設定される
     attackBonusThisTurn: 0,
     rewardPotion: null,
-    rewardUnlockedOrb: null,
+    rewardRelic: null,
+    rewardUnlockedOrbs: [],
+    zeroCostCardsPlayedThisBattle: 0,
+    originalCardUsedThisBattle: false,
+    activeEvent: null,
   };
 
   // バトル開始時の遺物効果を適用（古びた紋章など）
@@ -1024,7 +1365,10 @@ export function startRun(
     INITIAL_DRAW_COUNT,
     rng,
   );
-  return { ...stateAfterTurnStartRelics, player: playerAfterDraw };
+  return {
+    ...stateAfterTurnStartRelics,
+    player: playerAfterDraw,
+  };
 }
 
 /**
@@ -1116,6 +1460,28 @@ export function playCard(
       ...newState,
       run: addStats(newState.run, { originalCardUsedCount: 1 }),
     };
+    // 空紋の欠片: このバトルで初めてオリジナルカードを使ったとき2ドロー
+    if (!newState.originalCardUsedThisBattle) {
+      newState = { ...newState, originalCardUsedThisBattle: true };
+      for (const relic of newState.relics) {
+        if (relic.effect.kind === "drawOnOriginalCardFirstUse") {
+          const playerAfterDraw = drawCards(
+            newState.player,
+            relic.effect.count,
+            rng,
+          );
+          newState = {
+            ...newState,
+            player: playerAfterDraw,
+            log: addLog(
+              newState.log,
+              `【${relic.name}】オリジナルカード初使用で${relic.effect.count}枚ドローした。`,
+            ),
+            run: addStats(newState.run, { relicEffectCount: 1 }),
+          };
+        }
+      }
+    }
     // エネミーオーブ効果を適用（装着済みかつラン中）
     const originalCard = card;
     if (originalCard.enemySlot.kind === "filled") {
@@ -1154,7 +1520,7 @@ export function playCard(
 
   // 全エフェクトを順に適用
   for (const effect of card.effects) {
-    newState = applyEffect(newState, effect, rng);
+    newState = applyEffect(newState, effect, rng, card);
   }
 
   if (isOriginalCard(card) && card.compensation?.kind === "hpCost") {
@@ -1176,17 +1542,28 @@ export function playCard(
     switch (forgeEffect.kind) {
       case "poisonOnAttack": {
         if (isAttackCard(card)) {
+          const target = resolveAttackTarget(
+            newState,
+            getCardAttackTarget(card),
+          );
+          if (target === null) break;
+          const enemy = getTargetEnemies(newState, target)[0];
+          if (enemy === undefined) break;
+          const forgePoison =
+            forgeEffect.stacks + getPoisonApplyBonus(newState);
           const result = addStatusStacks(
-            newState.enemy.statuses,
+            enemy.statuses,
             { kind: "poison" },
-            forgeEffect.stacks,
+            forgePoison,
           );
           newState = {
-            ...newState,
-            enemy: { ...newState.enemy, statuses: result.statuses },
+            ...updateEnemy(newState, enemy.instanceId, (targetEnemy) => ({
+              ...targetEnemy,
+              statuses: result.statuses,
+            })),
             log: addLog(
               newState.log,
-              `鍛冶効果で敵にpoisonを${forgeEffect.stacks}付与した。（合計: ${result.totalStacks}）`,
+              `鍛冶効果で${enemy.name}にpoisonを${forgePoison}付与した。（合計: ${result.totalStacks}）`,
             ),
           };
         }
@@ -1212,28 +1589,17 @@ export function playCard(
 
       case "reflectOnBlock": {
         if (card.effects.some((effect) => effect.kind === "block")) {
-          const oldEnemyHp = newState.enemy.currentHp;
-          const { newHp, newBlock } = applyDamage(
-            newState.enemy.currentHp,
-            newState.enemy.block,
+          const target = getDefaultAttackTarget(newState);
+          if (target === null) break;
+          const enemy = getTargetEnemies(newState, target)[0];
+          if (enemy === undefined) break;
+          newState = applyDamageToEnemy(
+            newState,
+            enemy,
             forgeEffect.amount,
+            (newHp) =>
+              `鍛冶効果で${enemy.name}に${forgeEffect.amount}ダメージを与えた。${enemy.name}HP: ${newHp}`,
           );
-          const damageDealt = oldEnemyHp - newHp;
-          newState = {
-            ...newState,
-            enemy: {
-              ...newState.enemy,
-              currentHp: newHp,
-              block: newBlock,
-            },
-            log: addLog(
-              newState.log,
-              `鍛冶効果で敵に${forgeEffect.amount}ダメージを与えた。敵HP: ${newHp}`,
-            ),
-            run: addStats(newState.run, {
-              totalDamageDealt: damageDealt,
-            }),
-          };
         }
         break;
       }
@@ -1286,18 +1652,46 @@ export function playCard(
   const newAttackCardsPlayedThisTurn = isAttackCard(card)
     ? newState.attackCardsPlayedThisTurn + 1
     : newState.attackCardsPlayedThisTurn;
+
+  // 錆びた歯車: 0コストカード累計カウンタを更新し、閾値に達したら敵全体にダメージ
+  const isZeroCost = getEnergyCost(card.cost) === 0;
+  const newZeroCostCount = isZeroCost
+    ? newState.zeroCostCardsPlayedThisBattle + 1
+    : newState.zeroCostCardsPlayedThisBattle;
   newState = {
     ...newState,
     cardsPlayedThisTurn: newCardsPlayedThisTurn,
     attackCardsPlayedThisTurn: newAttackCardsPlayedThisTurn,
+    zeroCostCardsPlayedThisBattle: newZeroCostCount,
   };
+
+  if (isZeroCost && newZeroCostCount % 3 === 0) {
+    for (const relic of newState.relics) {
+      if (relic.effect.kind === "damageAllOnZeroCostCount") {
+        const { damage } = relic.effect;
+        for (const enemy of getLivingEnemies(newState)) {
+          newState = applyDamageToEnemy(
+            newState,
+            enemy,
+            damage,
+            (newHp) =>
+              `【${relic.name}】0コスト3枚で${enemy.name}に${damage}ダメージ。${enemy.name}HP: ${newHp}`,
+          );
+        }
+        newState = {
+          ...newState,
+          run: addStats(newState.run, { relicEffectCount: 1 }),
+        };
+      }
+    }
+  }
 
   if (isEvolveCard(card)) {
     newState = updateEvolveProgress(newState, card);
   }
 
   // 勝敗判定
-  newState = checkPhase(newState, rng);
+  newState = checkBattleEnd(newState, rng);
 
   // pendingDiscard の解決
   if (pendingDiscardCount > 0) {
@@ -1329,66 +1723,47 @@ export function playCard(
 }
 
 /**
- * プレイヤーターンを終了し、敵のターンを処理する
- * 1. 手札を全て捨て札に移動
- * 2. cardsPlayedThisTurn を 0 にリセット
- * 3. 敵のブロックをリセットして nextAction を実行
- * 4. 勝敗判定
- * 5. 次ターンの準備（ドロー・エネルギーリセット・敵 nextAction 更新）
+ * デフォルトターゲットを変更する（攻撃は行わない）
+ * タスク4: 毎回ターゲット選択UIを出す旧フローを廃止し、「ターゲット変更」専用の関数とした。
+ * main.ts の onSelectTarget コールバックから呼ばれる。
  */
-export function endPlayerTurn(state: GameState, rng: RngFn): GameState {
-  // バトル中以外は何もしない
+export function selectTarget(
+  state: GameState,
+  instanceId: string,
+  _rng: RngFn,
+): GameState {
   if (state.phase !== "battle") return state;
+  const targetEnemy = state.enemies.find(
+    (enemy) => enemy.instanceId === instanceId && enemy.currentHp > 0,
+  );
+  if (targetEnemy === undefined) return state;
 
-  // 1. 手札を全て捨て札に移動（ブロックはまだ残す。敵の攻撃を受けてから消える）
-  const playerAfterDiscard = discardHand(state.player);
-  let newState: GameState = {
+  return {
     ...state,
-    player: playerAfterDiscard,
-    turn: "enemy",
-    // pendingDiscard を強制クリア（未解決の捨て選択を破棄）
-    pendingDiscard: null,
-    // 2. カウンタ類をリセット
-    cardsPlayedThisTurn: 0,
-    attackCardsPlayedThisTurn: 0,
-    nextCardCostReduction: 0,
-    nextDefenseCardBonus: 0,
-    attackBonusThisTurn: 0,
-    log: addLog(state.log, "プレイヤーがターンを終了した。"),
+    selectedEnemyInstanceId: targetEnemy.instanceId,
   };
+}
 
-  // 敵の前ターンのブロックを、今回の敵行動より前にリセットする
-  newState = {
-    ...newState,
-    enemy: {
-      ...newState.enemy,
-      block: 0,
-    },
-  };
+function executeEnemyAction(state: GameState, enemy: Enemy): GameState {
+  const action = enemy.nextAction;
+  let newState = state;
 
-  // 3. 敵の nextAction を実行
-  const action = newState.enemy.nextAction;
   switch (action.kind) {
     case "attack": {
       const { newHp, newBlock, blockedAmount } = applyDamage(
         newState.player.currentHp,
         newState.player.block,
         action.amount,
-        newState.enemy.statuses,
+        enemy.statuses,
         newState.player.statuses,
       );
       const actualDamage = newState.player.currentHp - newHp;
-      const newPlayer = {
-        ...newState.player,
-        currentHp: newHp,
-        block: newBlock,
-      };
-      newState = {
+      return {
         ...newState,
-        player: newPlayer,
+        player: { ...newState.player, currentHp: newHp, block: newBlock },
         log: addLog(
           newState.log,
-          `敵が${action.amount}ダメージを与えた。プレイヤーHP: ${newHp}`,
+          `${enemy.name}が${action.amount}ダメージを与えた。プレイヤーHP: ${newHp}`,
         ),
         run: {
           ...addStats(newState.run, { totalDamageBlocked: blockedAmount }),
@@ -1396,17 +1771,18 @@ export function endPlayerTurn(state: GameState, rng: RngFn): GameState {
             newState.run.lastBattleDamageReceived + actualDamage,
         },
       };
-      break;
     }
     case "block": {
-      const newBlock = newState.enemy.block + action.amount;
-      const newEnemy = { ...newState.enemy, block: newBlock };
-      newState = {
-        ...newState,
-        enemy: newEnemy,
-        log: addLog(newState.log, `敵が${action.amount}ブロックを得た。`),
+      return {
+        ...updateEnemy(newState, enemy.instanceId, (targetEnemy) => ({
+          ...targetEnemy,
+          block: targetEnemy.block + action.amount,
+        })),
+        log: addLog(
+          newState.log,
+          `${enemy.name}が${action.amount}ブロックを得た。`,
+        ),
       };
-      break;
     }
     case "multiAttack": {
       let totalBlocked = 0;
@@ -1417,7 +1793,7 @@ export function endPlayerTurn(state: GameState, rng: RngFn): GameState {
           newState.player.currentHp,
           newState.player.block,
           action.amount,
-          newState.enemy.statuses,
+          enemy.statuses,
           newState.player.statuses,
         );
         totalBlocked += hit.blockedAmount;
@@ -1430,12 +1806,13 @@ export function endPlayerTurn(state: GameState, rng: RngFn): GameState {
             block: hit.newBlock,
           },
         };
+        if (hit.newHp <= 0) break;
       }
-      newState = {
+      return {
         ...newState,
         log: addLog(
           newState.log,
-          `敵が${action.amount}×${action.times}の連撃を与えた。プレイヤーHP: ${newState.player.currentHp}`,
+          `${enemy.name}が${action.amount}×${action.times}の連撃を与えた。プレイヤーHP: ${newState.player.currentHp}`,
         ),
         run: {
           ...addStats(newState.run, { totalDamageBlocked: totalBlocked }),
@@ -1443,23 +1820,22 @@ export function endPlayerTurn(state: GameState, rng: RngFn): GameState {
             newState.run.lastBattleDamageReceived + totalHpLost,
         },
       };
-      break;
     }
     case "attackAndApplyStatus": {
       const { newHp, newBlock, blockedAmount } = applyDamage(
         newState.player.currentHp,
         newState.player.block,
         action.amount,
-        newState.enemy.statuses,
+        enemy.statuses,
         newState.player.statuses,
       );
-      const actualDamageAAS = newState.player.currentHp - newHp;
+      const actualDamage = newState.player.currentHp - newHp;
       const statusResult = addStatusStacks(
         newState.player.statuses,
         action.status,
         action.stacks,
       );
-      newState = {
+      return {
         ...newState,
         player: {
           ...newState.player,
@@ -1469,15 +1845,14 @@ export function endPlayerTurn(state: GameState, rng: RngFn): GameState {
         },
         log: addLog(
           newState.log,
-          `敵が${action.amount}ダメージ＋${action.status.kind}${action.stacks}を与えた。プレイヤーHP: ${newHp}`,
+          `${enemy.name}が${action.amount}ダメージ＋${action.status.kind}${action.stacks}を与えた。プレイヤーHP: ${newHp}`,
         ),
         run: {
           ...addStats(newState.run, { totalDamageBlocked: blockedAmount }),
           lastBattleDamageReceived:
-            newState.run.lastBattleDamageReceived + actualDamageAAS,
+            newState.run.lastBattleDamageReceived + actualDamage,
         },
       };
-      break;
     }
     case "applyStatus": {
       if (action.target === "player") {
@@ -1486,104 +1861,132 @@ export function endPlayerTurn(state: GameState, rng: RngFn): GameState {
           action.status,
           action.stacks,
         );
-        newState = {
+        return {
           ...newState,
           player: { ...newState.player, statuses: result.statuses },
           log: addLog(
             newState.log,
-            `敵がプレイヤーに${action.status.kind}を${action.stacks}付与した。（合計: ${result.totalStacks}）`,
-          ),
-        };
-      } else {
-        const result = addStatusStacks(
-          newState.enemy.statuses,
-          action.status,
-          action.stacks,
-        );
-        newState = {
-          ...newState,
-          enemy: { ...newState.enemy, statuses: result.statuses },
-          log: addLog(
-            newState.log,
-            `敵が自身に${action.status.kind}を${action.stacks}付与した。（合計: ${result.totalStacks}）`,
+            `${enemy.name}がプレイヤーに${action.status.kind}を${action.stacks}付与した。（合計: ${result.totalStacks}）`,
           ),
         };
       }
-      break;
-    }
-    case "buff": {
       const result = addStatusStacks(
-        newState.enemy.statuses,
+        enemy.statuses,
         action.status,
         action.stacks,
       );
-      newState = {
-        ...newState,
-        enemy: { ...newState.enemy, statuses: result.statuses },
+      return {
+        ...updateEnemy(newState, enemy.instanceId, (targetEnemy) => ({
+          ...targetEnemy,
+          statuses: result.statuses,
+        })),
         log: addLog(
           newState.log,
-          `敵が${action.description}を行い、${action.status.kind}を${action.stacks}得た。（合計: ${result.totalStacks}）`,
+          `${enemy.name}が自身に${action.status.kind}を${action.stacks}付与した。（合計: ${result.totalStacks}）`,
         ),
       };
-      break;
     }
-    case "omen": {
-      newState = {
-        ...newState,
-        log: addLog(newState.log, `敵の予兆: ${action.description}`),
+    case "buff": {
+      const result = addStatusStacks(
+        enemy.statuses,
+        action.status,
+        action.stacks,
+      );
+      return {
+        ...updateEnemy(newState, enemy.instanceId, (targetEnemy) => ({
+          ...targetEnemy,
+          statuses: result.statuses,
+        })),
+        log: addLog(
+          newState.log,
+          `${enemy.name}が${action.description}を行い、${action.status.kind}を${action.stacks}得た。（合計: ${result.totalStacks}）`,
+        ),
       };
-      break;
     }
+    case "omen":
+      return {
+        ...newState,
+        log: addLog(newState.log, `${enemy.name}の予兆: ${action.description}`),
+      };
     case "blockAndAttack": {
-      newState = {
-        ...newState,
-        enemy: {
-          ...newState.enemy,
-          block: newState.enemy.block + action.blockAmount,
-        },
-      };
+      newState = updateEnemy(newState, enemy.instanceId, (targetEnemy) => ({
+        ...targetEnemy,
+        block: targetEnemy.block + action.blockAmount,
+      }));
       const { newHp, newBlock, blockedAmount } = applyDamage(
         newState.player.currentHp,
         newState.player.block,
         action.attackAmount,
-        newState.enemy.statuses,
+        enemy.statuses,
         newState.player.statuses,
       );
-      const actualDamageBAA = newState.player.currentHp - newHp;
-      newState = {
+      const actualDamage = newState.player.currentHp - newHp;
+      return {
         ...newState,
-        player: {
-          ...newState.player,
-          currentHp: newHp,
-          block: newBlock,
-        },
+        player: { ...newState.player, currentHp: newHp, block: newBlock },
         log: addLog(
           newState.log,
-          `敵が${action.blockAmount}ブロックを得て、${action.attackAmount}ダメージを与えた。プレイヤーHP: ${newHp}`,
+          `${enemy.name}が${action.blockAmount}ブロックを得て、${action.attackAmount}ダメージを与えた。プレイヤーHP: ${newHp}`,
         ),
         run: {
           ...addStats(newState.run, { totalDamageBlocked: blockedAmount }),
           lastBattleDamageReceived:
-            newState.run.lastBattleDamageReceived + actualDamageBAA,
+            newState.run.lastBattleDamageReceived + actualDamage,
         },
       };
-      break;
     }
-    case "idle": {
-      newState = {
+    case "idle":
+      return {
         ...newState,
-        log: addLog(newState.log, "敵は何もしなかった。"),
+        log: addLog(newState.log, `${enemy.name}は何もしなかった。`),
       };
-      break;
-    }
     default: {
-      // exhaustive check
       const _never: never = action;
       return _never;
     }
   }
+}
 
-  // 4. プレイヤーの毒をティック
+/**
+ * プレイヤーターンを終了し、敵のターンを処理する
+ * 1. 手札を全て捨て札に移動
+ * 2. cardsPlayedThisTurn を 0 にリセット
+ * 3. 敵のブロックをリセットして nextAction を実行
+ * 4. 勝敗判定
+ * 5. 次ターンの準備（ドロー・エネルギーリセット・敵 nextAction 更新）
+ */
+export function endPlayerTurn(state: GameState, rng: RngFn): GameState {
+  if (state.phase !== "battle") return state;
+
+  const playerAfterDiscard = discardHand(state.player);
+  let newState: GameState = {
+    ...state,
+    player: playerAfterDiscard,
+    turn: "enemy",
+    pendingDiscard: null,
+    pendingTargetCardId: null,
+    cardsPlayedThisTurn: 0,
+    attackCardsPlayedThisTurn: 0,
+    nextCardCostReduction: 0,
+    nextDefenseCardBonus: 0,
+    attackBonusThisTurn: 0,
+    log: addLog(state.log, "プレイヤーがターンを終了した。"),
+  };
+
+  const livingEnemies = getLivingEnemies(newState);
+  for (const enemy of livingEnemies) {
+    newState = updateEnemy(newState, enemy.instanceId, (targetEnemy) => ({
+      ...targetEnemy,
+      block: 0,
+    }));
+    const currentEnemy = newState.enemies.find(
+      (candidate) => candidate.instanceId === enemy.instanceId,
+    );
+    if (currentEnemy === undefined) continue;
+    newState = executeEnemyAction(newState, currentEnemy);
+    if (newState.player.currentHp <= 0) break;
+  }
+
   const playerPoisonStacks = newState.player.statuses.get("poison") ?? 0;
   if (playerPoisonStacks > 0) {
     const { newHp, newBlock } = applyDamage(
@@ -1608,30 +2011,30 @@ export function endPlayerTurn(state: GameState, rng: RngFn): GameState {
     };
   }
 
-  // 5. 敵のステータス効果をティック（毒・裂傷によるダメージ）
-  const poisonStacks = newState.enemy.statuses.get("poison") ?? 0;
-  const lacerationStacks = newState.enemy.statuses.get("laceration") ?? 0;
-  const statusDamage = poisonStacks + lacerationStacks;
-  if (statusDamage > 0) {
-    const { newHp: hpAfterStatus, newBlock: blockAfterStatus } = applyDamage(
-      newState.enemy.currentHp,
-      newState.enemy.block,
+  for (const enemy of newState.enemies) {
+    const poisonStacks = enemy.statuses.get("poison") ?? 0;
+    const lacerationStacks = enemy.statuses.get("laceration") ?? 0;
+    const statusDamage = poisonStacks + lacerationStacks;
+    if (statusDamage <= 0) continue;
+
+    const { newHp, newBlock } = applyDamage(
+      enemy.currentHp,
+      enemy.block,
       statusDamage,
     );
-    const tickedStatuses = new Map(newState.enemy.statuses);
+    const tickedStatuses = new Map(enemy.statuses);
     // 毒は1ずつ減少、裂傷は減少しない
     if (poisonStacks > 0) tickedStatuses.set("poison", poisonStacks - 1);
     newState = {
-      ...newState,
-      enemy: {
-        ...newState.enemy,
-        currentHp: hpAfterStatus,
-        block: blockAfterStatus,
+      ...updateEnemy(newState, enemy.instanceId, (targetEnemy) => ({
+        ...targetEnemy,
+        currentHp: newHp,
+        block: newBlock,
         statuses: tickedStatuses,
-      },
+      })),
       log: addLog(
         newState.log,
-        `ステータス効果で敵に${statusDamage}ダメージ。敵HP: ${hpAfterStatus}`,
+        `ステータス効果で${enemy.name}に${statusDamage}ダメージ。${enemy.name}HP: ${newHp}`,
       ),
     };
   }
@@ -1640,61 +2043,46 @@ export function endPlayerTurn(state: GameState, rng: RngFn): GameState {
     "weak",
     "vulnerable",
   ]);
-  const enemyStatusesAfterDecay = decayStatuses(newState.enemy.statuses, [
-    "weak",
-    "vulnerable",
-  ]);
+  const enemiesAfterDecay = newState.enemies.map((enemy) => ({
+    ...enemy,
+    statuses: decayStatuses(enemy.statuses, ["weak", "vulnerable"]),
+  }));
   newState = {
     ...newState,
-    player: {
-      ...newState.player,
-      statuses: playerStatusesAfterDecay,
-    },
-    enemy: {
-      ...newState.enemy,
-      statuses: enemyStatusesAfterDecay,
-    },
+    player: { ...newState.player, statuses: playerStatusesAfterDecay },
+    enemies: enemiesAfterDecay,
   };
 
-  // 6. 勝敗判定
-  newState = checkPhase(newState, rng);
+  newState = checkBattleEnd(newState, rng);
   if (newState.phase !== "battle") return newState;
 
-  // 7. 次のプレイヤーターンの準備
-  const nextBattleTurn = newState.enemy.battleTurn + 1;
-  const newEnemy = {
-    ...newState.enemy,
-    battleTurn: nextBattleTurn,
-    // 敵の nextAction を次ターン用に更新
-    // enemyHp: プレイヤーのカードプレイ後の敵 HP（HP しきい値による行動変化に使用）
-    nextAction: newState.enemy.behavior.selectAction({
-      turn: nextBattleTurn,
-      enemyHp: newState.enemy.currentHp,
-      playerHp: newState.player.currentHp,
-    }),
-  };
+  const enemiesForNextTurn = newState.enemies.map((enemy) => {
+    const nextBattleTurn = enemy.battleTurn + 1;
+    return {
+      ...enemy,
+      battleTurn: nextBattleTurn,
+      nextAction: enemy.behavior.selectAction({
+        turn: nextBattleTurn,
+        enemyHp: enemy.currentHp,
+        playerHp: newState.player.currentHp,
+      }),
+    };
+  });
 
-  // プレイヤーのエネルギーリセット＋ブロックリセット（次ターン開始時に消える）
-  const playerWithEnergy = {
-    ...newState.player,
-    energy: newState.player.maxEnergy,
-    block: 0,
-  };
   newState = {
     ...newState,
-    enemy: newEnemy,
-    player: playerWithEnergy,
+    enemies: enemiesForNextTurn,
+    player: {
+      ...newState.player,
+      energy: newState.player.maxEnergy,
+      block: 0,
+    },
     turn: "player",
   };
 
-  // プレイヤーターン開始時の遺物効果を適用
   newState = applyTurnStartRelicEffects(newState);
-
-  // 次ターンの手札をドロー
   const playerAfterDraw = drawCards(newState.player, TURN_DRAW_COUNT, rng);
-  newState = { ...newState, player: playerAfterDraw };
-
-  return newState;
+  return { ...newState, player: playerAfterDraw };
 }
 
 /**
@@ -1746,12 +2134,12 @@ export function selectRewardCard(state: GameState, cardId: string): GameState {
   return {
     ...state,
     player: newPlayer,
-    phase: "map",
+    phase: state.rewardRelic === null ? "map" : "reward",
     rewardCandidates: [],
     rewardGold: 0,
     rewardPotion: null,
-    rewardUnlockedOrb: null,
-    lastDefeatedEnemyName: "",
+    rewardUnlockedOrbs: [],
+    lastDefeatedEnemyNames: [],
     log: newLog,
   };
 }
@@ -1767,12 +2155,12 @@ export function skipReward(state: GameState): GameState {
 
   return {
     ...state,
-    phase: "map",
+    phase: state.rewardRelic === null ? "map" : "reward",
     rewardCandidates: [],
     rewardGold: 0,
     rewardPotion: null,
-    rewardUnlockedOrb: null,
-    lastDefeatedEnemyName: "",
+    rewardUnlockedOrbs: [],
+    lastDefeatedEnemyNames: [],
     log: newLog,
   };
 }
@@ -1832,7 +2220,47 @@ export function selectNode(
         log: addLog(state.log, "ショップに到着した。"),
       };
 
+    case "treasure": {
+      const rewardRelic = pickRelicReward(
+        rng,
+        new Set(state.relics.map((relic) => relic.id)),
+      );
+      return {
+        ...state,
+        run: newRun,
+        phase: "treasure",
+        rewardRelic,
+        log: addLog(
+          state.log,
+          rewardRelic !== null
+            ? `宝箱を開けた。${rewardRelic.name}を見つけた！`
+            : "宝箱を開けたが、入手できる遺物はなかった。",
+        ),
+      };
+    }
+
+    case "event": {
+      const eventDef = selectEventDefinition(state.run.chainEventFlags, rng);
+      if (eventDef === null) {
+        return {
+          ...state,
+          run: newRun,
+          phase: "map",
+          activeEvent: null,
+          log: addLog(state.log, "イベントは起きなかった。"),
+        };
+      }
+      return {
+        ...state,
+        run: newRun,
+        phase: "event",
+        activeEvent: eventDef,
+        log: addLog(state.log, `${eventDef.title}`),
+      };
+    }
+
     case "battle":
+    case "elite":
     case "boss": {
       // バトル開始
       // 1. デッキ（手札+捨て札+山札を統合）をシャッフル
@@ -1860,10 +2288,12 @@ export function selectNode(
       // 3. ノード種別に応じて敵を選択
       const nextRoomNumber = state.roomNumber + 1;
       const trialLevel = state.run.trialLevel;
-      const nextEnemy =
+      const nextEnemies =
         node.kind === "boss"
-          ? createBossEnemy(trialLevel)
-          : createRandomNormalEnemy(rng, trialLevel);
+          ? [createBossEnemy(trialLevel)]
+          : node.kind === "elite"
+            ? createEliteEnemyGroup(rng)
+            : createNormalEnemyGroup(rng, trialLevel);
 
       // 4. 新しい GameState を生成
       // 初遭遇判定のため encounteredEnemyIds に次の敵IDを追加する
@@ -1874,7 +2304,7 @@ export function selectNode(
       };
       const newState: GameState = {
         player: resetPlayer,
-        enemy: nextEnemy,
+        enemies: nextEnemies,
         turn: "player",
         phase: "battle",
         outcome: null,
@@ -1882,8 +2312,9 @@ export function selectNode(
         rewardCandidates: [],
         rewardGold: 0,
         rewardPotion: null,
-        rewardUnlockedOrb: null,
-        lastDefeatedEnemyName: "",
+        rewardRelic: null,
+        rewardUnlockedOrbs: [],
+        lastDefeatedEnemyNames: [],
         roomNumber: nextRoomNumber,
         relics: state.relics,
         cardsPlayedThisTurn: 0,
@@ -1894,6 +2325,11 @@ export function selectNode(
         shopItems: EMPTY_SHOP_ITEMS,
         run: runWithEncountered,
         pendingDiscard: null,
+        pendingTargetCardId: null,
+        selectedEnemyInstanceId: null, // initBattleState で設定される
+        zeroCostCardsPlayedThisBattle: 0,
+        originalCardUsedThisBattle: false,
+        activeEvent: null,
       };
 
       // 5. バトル開始時の遺物効果を適用
@@ -1909,7 +2345,10 @@ export function selectNode(
         INITIAL_DRAW_COUNT,
         rng,
       );
-      return { ...stateAfterTurnStartRelics, player: playerAfterDraw };
+      return {
+        ...stateAfterTurnStartRelics,
+        player: playerAfterDraw,
+      };
     }
 
     default: {
@@ -1954,13 +2393,13 @@ export function proceedToNextRoom(state: GameState, rng: RngFn): GameState {
     statuses: new Map(),
   };
   const nextRoomNumber = state.roomNumber + 1;
-  const nextEnemy =
+  const nextEnemies =
     nextRoomNumber === 10
-      ? createBossEnemy(state.run.trialLevel)
-      : createRandomNormalEnemy(rng, state.run.trialLevel);
+      ? [createBossEnemy(state.run.trialLevel)]
+      : createNormalEnemyGroup(rng, state.run.trialLevel);
   const newState: GameState = {
     player: resetPlayer,
-    enemy: nextEnemy,
+    enemies: nextEnemies,
     turn: "player",
     phase: "battle",
     outcome: null,
@@ -1968,8 +2407,9 @@ export function proceedToNextRoom(state: GameState, rng: RngFn): GameState {
     rewardCandidates: [],
     rewardGold: 0,
     rewardPotion: null,
-    rewardUnlockedOrb: null,
-    lastDefeatedEnemyName: "",
+    rewardRelic: null,
+    rewardUnlockedOrbs: [],
+    lastDefeatedEnemyNames: [],
     roomNumber: nextRoomNumber,
     relics: state.relics,
     cardsPlayedThisTurn: 0,
@@ -1980,6 +2420,11 @@ export function proceedToNextRoom(state: GameState, rng: RngFn): GameState {
     shopItems: EMPTY_SHOP_ITEMS,
     run: state.run,
     pendingDiscard: null,
+    pendingTargetCardId: null,
+    selectedEnemyInstanceId: null, // initBattleState で設定される
+    zeroCostCardsPlayedThisBattle: 0,
+    originalCardUsedThisBattle: false,
+    activeEvent: null,
   };
   const stateAfterRelics = initBattleState(newState);
   const stateAfterTurnStartRelics =
@@ -1989,7 +2434,67 @@ export function proceedToNextRoom(state: GameState, rng: RngFn): GameState {
     INITIAL_DRAW_COUNT,
     rng,
   );
-  return { ...stateAfterTurnStartRelics, player: playerAfterDraw };
+  return {
+    ...stateAfterTurnStartRelics,
+    player: playerAfterDraw,
+  };
+}
+
+export function resolveEventChoice(
+  state: GameState,
+  choiceIndex: number,
+  rng: RngFn,
+): GameState {
+  if (state.phase !== "event" || state.activeEvent === null) return state;
+  const choice = state.activeEvent.choices[choiceIndex];
+  if (choice === undefined) return state;
+
+  const afterEffects = applyEventEffects(state, choice.effects, rng);
+  const afterFlag = applyChainFlagUpdate(afterEffects, choice.nextChainFlag);
+  if (afterFlag.player.currentHp <= 0) {
+    return {
+      ...afterFlag,
+      phase: "result",
+      outcome: "defeat",
+      activeEvent: null,
+    };
+  }
+  return {
+    ...afterFlag,
+    activeEvent: null,
+  };
+}
+
+export function resolveEventForced(state: GameState, rng: RngFn): GameState {
+  if (state.phase !== "event" || state.activeEvent === null) return state;
+  const afterEffects = applyEventEffects(
+    state,
+    state.activeEvent.forcedEffects ?? [],
+    rng,
+  );
+  const afterFlag = applyChainFlagUpdate(afterEffects);
+  if (afterFlag.player.currentHp <= 0) {
+    return {
+      ...afterFlag,
+      phase: "result",
+      outcome: "defeat",
+      activeEvent: null,
+    };
+  }
+  return {
+    ...afterFlag,
+    phase: "map",
+    activeEvent: null,
+  };
+}
+
+export function leaveEvent(state: GameState): GameState {
+  if (state.phase !== "event") return state;
+  return {
+    ...state,
+    phase: "map",
+    activeEvent: null,
+  };
 }
 
 export function buyShopCard(state: GameState, cardId: string): GameState {
@@ -2084,41 +2589,26 @@ export function leaveShop(state: GameState): GameState {
     ...state,
     phase: "map",
     shopItems: EMPTY_SHOP_ITEMS,
-    log: addLog(state.log, "ショップを出た。"),
+    log: addLog(
+      state.log,
+      "購入できるものがなかったため、ショップを通過した。",
+    ),
   };
 }
 
 export function leaveForge(state: GameState): GameState {
   if (state.phase !== "forge") return state;
-  const nodeId = state.run.currentNodeId;
-  const parentNodeId = findParentNodeId(state.run.map, nodeId);
-  const newVisited = new Set(state.run.visitedNodeIds);
-  newVisited.delete(nodeId);
   return {
     ...state,
-    run: {
-      ...state.run,
-      currentNodeId: parentNodeId,
-      visitedNodeIds: newVisited,
-    },
     phase: "map",
-    log: addLog(state.log, "鍛冶所を出た。"),
+    log: addLog(state.log, "鍛冶できる対象がなかったため、鍛冶所を通過した。"),
   };
 }
 
 export function leaveRest(state: GameState): GameState {
   if (state.phase !== "rest") return state;
-  const nodeId = state.run.currentNodeId;
-  const parentNodeId = findParentNodeId(state.run.map, nodeId);
-  const newVisited = new Set(state.run.visitedNodeIds);
-  newVisited.delete(nodeId);
   return {
     ...state,
-    run: {
-      ...state.run,
-      currentNodeId: parentNodeId,
-      visitedNodeIds: newVisited,
-    },
     phase: "map",
     log: addLog(state.log, "休憩所を出た。"),
   };
@@ -2144,10 +2634,7 @@ export function healAtRest(state: GameState): GameState {
     ...state,
     player: newPlayer,
     phase: "map",
-    log: addLog(
-      state.log,
-      `休憩してHPを${healedAmount}回復した。HP: ${newHp}`,
-    ),
+    log: addLog(state.log, `休憩してHPを${healedAmount}回復した。HP: ${newHp}`),
   };
 }
 
@@ -2256,39 +2743,38 @@ export function usePotion(
       break;
     }
     case "applyPoison": {
+      const target = getDefaultAttackTarget(newState);
+      if (target === null || target.kind !== "single") break;
+      const enemy = getTargetEnemies(newState, target)[0];
+      if (enemy === undefined) break;
+      const potionPoison = effect.stacks + getPoisonApplyBonus(newState);
       const result = addStatusStacks(
-        newState.enemy.statuses,
+        enemy.statuses,
         { kind: "poison" },
-        effect.stacks,
+        potionPoison,
       );
       newState = {
-        ...newState,
-        enemy: { ...newState.enemy, statuses: result.statuses },
+        ...updateEnemy(newState, enemy.instanceId, (targetEnemy) => ({
+          ...targetEnemy,
+          statuses: result.statuses,
+        })),
         log: addLog(
           newState.log,
-          `${potion.name}を使った。敵にpoison ${effect.stacks}を付与した。（合計: ${result.totalStacks}）`,
+          `${potion.name}を使った。${enemy.name}にpoison ${potionPoison}を付与した。（合計: ${result.totalStacks}）`,
         ),
       };
       break;
     }
     case "damageAllEnemies": {
-      // 複数敵実装時に要修正（現在は単一 enemy に解決）
-      const oldHp = newState.enemy.currentHp;
-      const { newHp, newBlock } = applyDamage(
-        newState.enemy.currentHp,
-        newState.enemy.block,
-        effect.amount,
-      );
-      const damageDealt = oldHp - newHp;
-      newState = {
-        ...newState,
-        enemy: { ...newState.enemy, currentHp: newHp, block: newBlock },
-        run: addStats(newState.run, { totalDamageDealt: damageDealt }),
-        log: addLog(
-          newState.log,
-          `${potion.name}を使った。敵に${effect.amount}ダメージ。敵HP: ${newHp}`,
-        ),
-      };
+      for (const enemy of getLivingEnemies(newState)) {
+        newState = applyDamageToEnemy(
+          newState,
+          enemy,
+          effect.amount,
+          (newHp) =>
+            `${potion.name}を使った。${enemy.name}に${effect.amount}ダメージ。${enemy.name}HP: ${newHp}`,
+        );
+      }
       break;
     }
     default: {
@@ -2297,7 +2783,7 @@ export function usePotion(
     }
   }
 
-  return checkPhase(newState, rng);
+  return checkBattleEnd(newState, rng);
 }
 
 /**
@@ -2366,5 +2852,24 @@ export function claimRewardPotion(state: GameState): GameState {
     run: { ...state.run, potions: newPotions },
     rewardPotion: null,
     log: addLog(state.log, `${potionName}を受け取った。`),
+  };
+}
+
+export function claimRewardRelic(state: GameState): GameState {
+  if (state.phase !== "reward" && state.phase !== "treasure") return state;
+  if (state.rewardRelic === null) {
+    return state.phase === "treasure" ? { ...state, phase: "map" } : state;
+  }
+
+  const relicName = state.rewardRelic.name;
+  return {
+    ...state,
+    phase:
+      state.phase === "treasure" || state.rewardCandidates.length === 0
+        ? "map"
+        : state.phase,
+    relics: [...state.relics, state.rewardRelic],
+    rewardRelic: null,
+    log: addLog(state.log, `${relicName}を受け取った。`),
   };
 }

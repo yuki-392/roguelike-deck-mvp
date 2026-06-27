@@ -1,4 +1,12 @@
-import type { AffinityTag, Card, StartingDeckType } from "./types";
+import { ALL_RELICS } from "./data/relics";
+import type {
+  AffinityTag,
+  Card,
+  Relic,
+  RelicRarity,
+  StartingDeckType,
+} from "./types";
+import type { RngFn } from "./rng";
 
 const NEUTRAL_WEIGHT = 1;
 
@@ -52,4 +60,20 @@ export function createWeightedRewardPool(
       () => card,
     ),
   );
+}
+
+export function pickRelicReward(
+  rng: RngFn,
+  ownedRelicIds: ReadonlySet<string>,
+  rarities: readonly RelicRarity[] = ["normal", "uncommon"],
+): Relic | null {
+  const pool = ALL_RELICS.filter(
+    (relic) =>
+      !relic.isStarter &&
+      rarities.includes(relic.rarity) &&
+      !ownedRelicIds.has(relic.id),
+  );
+
+  if (pool.length === 0) return null;
+  return pool[Math.floor(rng() * pool.length)] ?? null;
 }

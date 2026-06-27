@@ -1,10 +1,12 @@
 // カードデータ定義
-import type { Card, EvolveCard } from "../types";
+import type { Card, CardCategory, EvolveCard } from "../types";
 import type { OriginalCard } from "../types/originalCard";
 
 // ---- 拡張カードプール（攻撃系） ----
 
 const PUNCH_CARD_BASE: Omit<Card, "id"> = {
+  no: "attack-020",
+  category: "attack",
   name: "パンチ",
   cost: { kind: "fixed", energy: 1 },
   effects: [{ kind: "attack", amount: 8 }],
@@ -14,6 +16,8 @@ const PUNCH_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const KOGEKI_CARD_BASE: Omit<Card, "id"> = {
+  no: "attack-010",
+  category: "attack",
   name: "攻撃",
   cost: { kind: "fixed", energy: 1 },
   effects: [{ kind: "attack", amount: 6 }],
@@ -23,6 +27,8 @@ const KOGEKI_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const KYODA_CARD_BASE: Omit<Card, "id"> = {
+  no: "attack-030",
+  category: "attack",
   name: "強打",
   cost: { kind: "fixed", energy: 2 },
   effects: [{ kind: "attack", amount: 14 }],
@@ -32,6 +38,8 @@ const KYODA_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const NIREN_CARD_BASE: Omit<Card, "id"> = {
+  no: "attack-040",
+  category: "attack",
   name: "二連攻撃",
   cost: { kind: "fixed", energy: 1 },
   effects: [{ kind: "multiAttack", amount: 3, times: 2 }],
@@ -41,6 +49,8 @@ const NIREN_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const YOROIKUDAKI_CARD_BASE: Omit<Card, "id"> = {
+  no: "attack-050",
+  category: "attack",
   name: "鎧砕き",
   cost: { kind: "fixed", energy: 1 },
   effects: [
@@ -53,6 +63,8 @@ const YOROIKUDAKI_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const DOKUHARI_CARD_BASE: Omit<Card, "id"> = {
+  no: "attack-060",
+  category: "attack",
   name: "毒針",
   cost: { kind: "fixed", energy: 1 },
   effects: [
@@ -65,6 +77,8 @@ const DOKUHARI_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const SUTEMI_CARD_BASE: Omit<Card, "id"> = {
+  no: "attack-070",
+  category: "attack",
   name: "捨て身",
   cost: { kind: "fixed", energy: 1 },
   effects: [
@@ -77,6 +91,8 @@ const SUTEMI_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const TSUIGEKI_CARD_BASE: Omit<Card, "id"> = {
+  no: "attack-080",
+  category: "attack",
   name: "追撃",
   cost: { kind: "fixed", energy: 1 },
   effects: [
@@ -96,6 +112,8 @@ const TSUIGEKI_CARD_BASE: Omit<Card, "id"> = {
 // ---- 拡張カードプール（防御系） ----
 
 const BOGYO_CARD_BASE: Omit<Card, "id"> = {
+  no: "defense-010",
+  category: "defense",
   name: "防御",
   cost: { kind: "fixed", energy: 1 },
   effects: [{ kind: "block", amount: 5 }],
@@ -105,6 +123,8 @@ const BOGYO_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const DAIBOGYO_CARD_BASE: Omit<Card, "id"> = {
+  no: "defense-020",
+  category: "defense",
   name: "大防御",
   cost: { kind: "fixed", energy: 2 },
   effects: [{ kind: "block", amount: 12 }],
@@ -114,6 +134,8 @@ const DAIBOGYO_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const TATEUCHI_CARD_BASE: Omit<Card, "id"> = {
+  no: "defense-030",
+  category: "defense",
   name: "盾打ち",
   cost: { kind: "fixed", energy: 1 },
   effects: [
@@ -126,6 +148,8 @@ const TATEUCHI_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const MIKAWASHI_CARD_BASE: Omit<Card, "id"> = {
+  no: "defense-040",
+  category: "defense",
   name: "身かわし",
   cost: { kind: "zero" },
   effects: [
@@ -138,6 +162,8 @@ const MIKAWASHI_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const KOKA_CARD_BASE: Omit<Card, "id"> = {
+  no: "defense-050",
+  category: "defense",
   name: "硬化",
   cost: { kind: "fixed", energy: 1 },
   effects: [
@@ -152,6 +178,8 @@ const KOKA_CARD_BASE: Omit<Card, "id"> = {
 // ---- 拡張カードプール（スキル系） ----
 
 const KANSATSU_CARD_BASE: Omit<Card, "id"> = {
+  no: "skill-010",
+  category: "skill",
   name: "観察",
   cost: { kind: "fixed", energy: 1 },
   effects: [
@@ -164,6 +192,8 @@ const KANSATSU_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const SENJUTSUSEIRI_CARD_BASE: Omit<Card, "id"> = {
+  no: "skill-020",
+  category: "skill",
   name: "戦術整理",
   cost: { kind: "fixed", energy: 1 },
   effects: [
@@ -176,6 +206,8 @@ const SENJUTSUSEIRI_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const FUKOKYU_CARD_BASE: Omit<Card, "id"> = {
+  no: "skill-030",
+  category: "skill",
   name: "深呼吸",
   cost: { kind: "zero" },
   effects: [{ kind: "draw", count: 1 }],
@@ -186,6 +218,8 @@ const FUKOKYU_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const SHUCHU_CARD_BASE: Omit<Card, "id"> = {
+  no: "skill-040",
+  category: "skill",
   name: "集中",
   cost: { kind: "fixed", energy: 1 },
   effects: [{ kind: "costReductionNextCard", amount: 2 }],
@@ -195,6 +229,8 @@ const SHUCHU_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const BOGYO_SHIJI_CARD_BASE: Omit<Card, "id"> = {
+  no: "skill-050",
+  category: "skill",
   name: "防御指示",
   cost: { kind: "fixed", energy: 1 },
   effects: [
@@ -207,6 +243,8 @@ const BOGYO_SHIJI_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const SHINSHOKU_CARD_BASE: Omit<Card, "id"> = {
+  no: "skill-060",
+  category: "skill",
   name: "侵蝕促進",
   cost: { kind: "fixed", energy: 1 },
   effects: [{ kind: "amplifyEnemyStatus", amount: 2 }],
@@ -218,6 +256,8 @@ const SHINSHOKU_CARD_BASE: Omit<Card, "id"> = {
 // ---- 特殊効果スロット付きカード ----
 
 const RUNEBLADE_CARD_BASE: Omit<Card, "id"> = {
+  no: "attack-090",
+  category: "attack",
   name: "ルーンブレード",
   cost: { kind: "fixed", energy: 1 },
   effects: [{ kind: "attack", amount: 7 }],
@@ -228,6 +268,8 @@ const RUNEBLADE_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const RUNESHIELD_CARD_BASE: Omit<Card, "id"> = {
+  no: "defense-060",
+  category: "defense",
   name: "ルーンシールド",
   cost: { kind: "fixed", energy: 1 },
   effects: [{ kind: "block", amount: 7 }],
@@ -238,6 +280,8 @@ const RUNESHIELD_CARD_BASE: Omit<Card, "id"> = {
 };
 
 const RUNESCRIPT_CARD_BASE: Omit<Card, "id"> = {
+  no: "skill-070",
+  category: "skill",
   name: "ルーン写本",
   cost: { kind: "fixed", energy: 1 },
   effects: [{ kind: "draw", count: 2 }],
@@ -253,6 +297,8 @@ const EVOLVED_ASSAULT_ID = "evolved-assault";
 const EVOLVED_VENOM_ID = "evolved-venom";
 
 const GROWING_ASSAULT_CARD_BASE: Omit<EvolveCard, "id"> = {
+  no: "evolve-010",
+  category: "evolve",
   name: "成長する一撃",
   cost: { kind: "fixed", energy: 1 },
   effects: [{ kind: "attack", amount: 5 }],
@@ -265,6 +311,8 @@ const GROWING_ASSAULT_CARD_BASE: Omit<EvolveCard, "id"> = {
 };
 
 const GROWING_VENOM_CARD_BASE: Omit<EvolveCard, "id"> = {
+  no: "evolve-020",
+  category: "evolve",
   name: "育つ毒牙",
   cost: { kind: "fixed", energy: 1 },
   effects: [
@@ -285,6 +333,8 @@ const GROWING_VENOM_CARD_BASE: Omit<EvolveCard, "id"> = {
 
 const EVOLVED_CARD_BASES: Readonly<Record<string, Omit<Card, "id">>> = {
   [EVOLVED_ASSAULT_ID]: {
+    no: "evolve-030",
+    category: "evolve",
     name: "完成された一撃",
     cost: { kind: "fixed", energy: 1 },
     effects: [{ kind: "attack", amount: 11 }],
@@ -293,6 +343,8 @@ const EVOLVED_CARD_BASES: Readonly<Record<string, Omit<Card, "id">>> = {
     description: "11ダメージを与える。",
   },
   [EVOLVED_VENOM_ID]: {
+    no: "evolve-040",
+    category: "evolve",
     name: "猛毒牙",
     cost: { kind: "fixed", energy: 1 },
     effects: [
@@ -304,6 +356,72 @@ const EVOLVED_CARD_BASES: Readonly<Record<string, Omit<Card, "id">>> = {
     description: "5ダメージ。敵に毒5を付与する。",
   },
 };
+
+type CardCatalogEntry = {
+  readonly no: string;
+  readonly category: CardCategory;
+};
+
+function toCatalogEntry(
+  card: Pick<Card, "no" | "category">,
+): CardCatalogEntry {
+  return { no: card.no, category: card.category };
+}
+
+export const CARD_MASTER_CATALOG: ReadonlyMap<string, CardCatalogEntry> =
+  new Map<string, CardCatalogEntry>([
+    [KOGEKI_CARD_BASE.name, toCatalogEntry(KOGEKI_CARD_BASE)],
+    [PUNCH_CARD_BASE.name, toCatalogEntry(PUNCH_CARD_BASE)],
+    [KYODA_CARD_BASE.name, toCatalogEntry(KYODA_CARD_BASE)],
+    [NIREN_CARD_BASE.name, toCatalogEntry(NIREN_CARD_BASE)],
+    [YOROIKUDAKI_CARD_BASE.name, toCatalogEntry(YOROIKUDAKI_CARD_BASE)],
+    [DOKUHARI_CARD_BASE.name, toCatalogEntry(DOKUHARI_CARD_BASE)],
+    [SUTEMI_CARD_BASE.name, toCatalogEntry(SUTEMI_CARD_BASE)],
+    [TSUIGEKI_CARD_BASE.name, toCatalogEntry(TSUIGEKI_CARD_BASE)],
+    [RUNEBLADE_CARD_BASE.name, toCatalogEntry(RUNEBLADE_CARD_BASE)],
+    [BOGYO_CARD_BASE.name, toCatalogEntry(BOGYO_CARD_BASE)],
+    [DAIBOGYO_CARD_BASE.name, toCatalogEntry(DAIBOGYO_CARD_BASE)],
+    [TATEUCHI_CARD_BASE.name, toCatalogEntry(TATEUCHI_CARD_BASE)],
+    [MIKAWASHI_CARD_BASE.name, toCatalogEntry(MIKAWASHI_CARD_BASE)],
+    [KOKA_CARD_BASE.name, toCatalogEntry(KOKA_CARD_BASE)],
+    [RUNESHIELD_CARD_BASE.name, toCatalogEntry(RUNESHIELD_CARD_BASE)],
+    [KANSATSU_CARD_BASE.name, toCatalogEntry(KANSATSU_CARD_BASE)],
+    [SENJUTSUSEIRI_CARD_BASE.name, toCatalogEntry(SENJUTSUSEIRI_CARD_BASE)],
+    [FUKOKYU_CARD_BASE.name, toCatalogEntry(FUKOKYU_CARD_BASE)],
+    [SHUCHU_CARD_BASE.name, toCatalogEntry(SHUCHU_CARD_BASE)],
+    [BOGYO_SHIJI_CARD_BASE.name, toCatalogEntry(BOGYO_SHIJI_CARD_BASE)],
+    [SHINSHOKU_CARD_BASE.name, toCatalogEntry(SHINSHOKU_CARD_BASE)],
+    [RUNESCRIPT_CARD_BASE.name, toCatalogEntry(RUNESCRIPT_CARD_BASE)],
+    [
+      GROWING_ASSAULT_CARD_BASE.name,
+      toCatalogEntry(GROWING_ASSAULT_CARD_BASE),
+    ],
+    [
+      GROWING_VENOM_CARD_BASE.name,
+      toCatalogEntry(GROWING_VENOM_CARD_BASE),
+    ],
+    [
+      EVOLVED_CARD_BASES[EVOLVED_ASSAULT_ID].name,
+      toCatalogEntry(EVOLVED_CARD_BASES[EVOLVED_ASSAULT_ID]),
+    ],
+    [
+      EVOLVED_CARD_BASES[EVOLVED_VENOM_ID].name,
+      toCatalogEntry(EVOLVED_CARD_BASES[EVOLVED_VENOM_ID]),
+    ],
+  ]);
+
+const EVOLVED_CARD_NAMES: ReadonlySet<string> = new Set(
+  Object.values(EVOLVED_CARD_BASES).map((card) => card.name),
+);
+
+/**
+ * 進化後カードかどうかをカード名から判定する。
+ * 進化後カードは図鑑に登録されても工房素材には使えない。
+ */
+export function isEvolvedCard(card: Card): boolean {
+  const baseName = card.name.endsWith("+") ? card.name.slice(0, -1) : card.name;
+  return EVOLVED_CARD_NAMES.has(baseName);
+}
 
 /**
  * 進化先の定義から、元カードと同じインスタンスIDを持つカードを生成する。
@@ -434,6 +552,65 @@ export function createFallbackAttackCard(): Card {
 const UPGRADE_ATTACK_BONUS = 3; // 攻撃系カードの強化ダメージ増加量
 const UPGRADE_BLOCK_BONUS = 3; // 防御系カードの強化ブロック増加量
 
+function describeStatusEffect(
+  status: import("../types").StatusEffect,
+): string {
+  switch (status.kind) {
+    case "vulnerable":
+      return "弱体";
+    case "weak":
+      return "脱力";
+    case "poison":
+      return "毒";
+    case "laceration":
+      return "裂傷";
+    case "strength":
+      return "攻撃力上昇";
+    default: {
+      const _never: never = status;
+      return _never;
+    }
+  }
+}
+
+function describeCardEffect(effect: import("../types").CardEffect): string {
+  switch (effect.kind) {
+    case "attack":
+      return `${effect.amount}ダメージを与える。`;
+    case "block":
+      return `${effect.amount}ブロックを得る。`;
+    case "draw":
+      return `カードを${effect.count}枚引く。`;
+    case "gainEnergy":
+      return `このターン、エナジーを${effect.amount}得る。`;
+    case "applyStatus":
+      return `敵に${describeStatusEffect(effect.status)}${effect.stacks}を付与する。`;
+    case "multiAttack":
+      return `${effect.amount}ダメージを${effect.times}回与える。`;
+    case "selfDamage":
+      return `自分に${effect.amount}ダメージ。`;
+    case "discard":
+      return `手札を${effect.count}枚捨てる。`;
+    case "conditionalAttack":
+      return `${effect.baseAmount}ダメージ。このターンすでに攻撃カードを使っていれば追加${effect.bonusAmount}ダメージ。`;
+    case "costReductionNextCard":
+      return `このターン、次に使うカードのコストが${effect.amount}減少する。`;
+    case "buffNextDefense":
+      return `次に使う防御カードに+${effect.amount}ブロック。`;
+    case "amplifyEnemyStatus":
+      return `敵の毒と裂傷をそれぞれ${effect.amount}増幅する。`;
+    default: {
+      const _never: never = effect;
+      return _never;
+    }
+  }
+}
+
+function describeCardFromEffects(card: Pick<Card, "effects" | "exhaust">): string {
+  const effectText = card.effects.map(describeCardEffect).join("");
+  return card.exhaust === true ? `${effectText}使用後廃棄。` : effectText;
+}
+
 /**
  * カードを強化して返す
  * - 攻撃効果のダメージ増加・ブロック効果のブロック増加
@@ -499,6 +676,10 @@ export function upgradeCard(card: Card | OriginalCard): Card | OriginalCard {
     ...card,
     cost: upgradedCost,
     effects: upgradedEffects,
+    description: describeCardFromEffects({
+      effects: upgradedEffects,
+      exhaust: card.exhaust,
+    }),
     upgraded: true,
   };
 
@@ -527,22 +708,17 @@ export function createRewardPool(): readonly Card[] {
   return [
     // 攻撃系
     { ...PUNCH_CARD_BASE, id: nextCardId("punch") },
-    { ...KOGEKI_CARD_BASE, id: nextCardId("kogeki") },
     { ...KYODA_CARD_BASE, id: nextCardId("kyoda") },
-    { ...NIREN_CARD_BASE, id: nextCardId("niren") },
     { ...YOROIKUDAKI_CARD_BASE, id: nextCardId("yoroikudaki") },
     { ...DOKUHARI_CARD_BASE, id: nextCardId("dokuhari") },
     { ...SUTEMI_CARD_BASE, id: nextCardId("sutemi") },
     { ...TSUIGEKI_CARD_BASE, id: nextCardId("tsuigeki") },
     // 防御系
-    { ...BOGYO_CARD_BASE, id: nextCardId("bogyo") },
     { ...DAIBOGYO_CARD_BASE, id: nextCardId("daibogyo") },
     { ...TATEUCHI_CARD_BASE, id: nextCardId("tateuchi") },
     { ...MIKAWASHI_CARD_BASE, id: nextCardId("mikawashi") },
     { ...KOKA_CARD_BASE, id: nextCardId("koka") },
     // スキル系
-    { ...KANSATSU_CARD_BASE, id: nextCardId("kansatsu") },
-    { ...SENJUTSUSEIRI_CARD_BASE, id: nextCardId("senjutsuseiri") },
     { ...FUKOKYU_CARD_BASE, id: nextCardId("fukokyu") },
     { ...SHUCHU_CARD_BASE, id: nextCardId("shuchu") },
     { ...BOGYO_SHIJI_CARD_BASE, id: nextCardId("bogyoshiji") },

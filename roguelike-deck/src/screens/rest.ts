@@ -51,38 +51,34 @@ export function renderRestScreen(
   handlers.push({ btn: healBtn, handler: healHandler });
   screen.appendChild(healBtn);
 
-  // 「カードを強化する」ボタン
-  const upgradeBtn = document.createElement("button");
-  upgradeBtn.type = "button";
-  upgradeBtn.id = "rest-upgrade-btn";
-  upgradeBtn.textContent = "カードを強化する";
-
-  // カード選択エリア（初期は非表示）
-  const cardChoiceArea = document.createElement("section");
-  cardChoiceArea.id = "rest-card-choice-area";
-  cardChoiceArea.style.display = "none";
-
-  const cardChoiceHeading = document.createElement("h2");
-  cardChoiceHeading.textContent = "強化するカードを選んでください";
-  cardChoiceArea.appendChild(cardChoiceHeading);
-
-  const cardChoiceDesc = document.createElement("p");
-  cardChoiceDesc.textContent = "強化済みのカードは表示されません。";
-  cardChoiceArea.appendChild(cardChoiceDesc);
-
-  const cardList = document.createElement("div");
-  cardList.id = "rest-card-list";
-
   // upgraded !== true のカードのみ表示（hand + discard は戦闘前に deck に統合済み）
   const upgradableCards: Card[] = state.player.deck.filter(
     (c) => c.upgraded !== true,
   );
 
-  if (upgradableCards.length === 0) {
-    const noCards = document.createElement("p");
-    noCards.textContent = "強化できるカードがありません。";
-    cardList.appendChild(noCards);
-  } else {
+  if (upgradableCards.length > 0) {
+    // 「カードを強化する」ボタン
+    const upgradeBtn = document.createElement("button");
+    upgradeBtn.type = "button";
+    upgradeBtn.id = "rest-upgrade-btn";
+    upgradeBtn.textContent = "カードを強化する";
+
+    // カード選択エリア（初期は非表示）
+    const cardChoiceArea = document.createElement("section");
+    cardChoiceArea.id = "rest-card-choice-area";
+    cardChoiceArea.style.display = "none";
+
+    const cardChoiceHeading = document.createElement("h2");
+    cardChoiceHeading.textContent = "強化するカードを選んでください";
+    cardChoiceArea.appendChild(cardChoiceHeading);
+
+    const cardChoiceDesc = document.createElement("p");
+    cardChoiceDesc.textContent = "強化済みのカードは表示されません。";
+    cardChoiceArea.appendChild(cardChoiceDesc);
+
+    const cardList = document.createElement("div");
+    cardList.id = "rest-card-list";
+
     for (const card of upgradableCards) {
       const cardBtn = document.createElement("button");
       cardBtn.type = "button";
@@ -103,32 +99,23 @@ export function renderRestScreen(
       handlers.push({ btn: cardBtn, handler: cardHandler });
       cardList.appendChild(cardBtn);
     }
+
+    cardChoiceArea.appendChild(cardList);
+
+    // 「カードを強化する」ボタンのクリックでカード選択エリアを表示
+    const upgradeHandler = () => {
+      callbacks.onSelectRest("upgrade");
+      // カード選択エリアを表示し、ボタンを非活性にする
+      cardChoiceArea.style.display = "";
+      upgradeBtn.disabled = true;
+      healBtn.disabled = true;
+    };
+    upgradeBtn.addEventListener("click", upgradeHandler);
+    handlers.push({ btn: upgradeBtn, handler: upgradeHandler });
+
+    screen.appendChild(upgradeBtn);
+    screen.appendChild(cardChoiceArea);
   }
-
-  cardChoiceArea.appendChild(cardList);
-
-  // 「カードを強化する」ボタンのクリックでカード選択エリアを表示
-  const upgradeHandler = () => {
-    callbacks.onSelectRest("upgrade");
-    // カード選択エリアを表示し、ボタンを非活性にする
-    cardChoiceArea.style.display = "";
-    upgradeBtn.disabled = true;
-    healBtn.disabled = true;
-  };
-  upgradeBtn.addEventListener("click", upgradeHandler);
-  handlers.push({ btn: upgradeBtn, handler: upgradeHandler });
-
-  screen.appendChild(upgradeBtn);
-  screen.appendChild(cardChoiceArea);
-
-  const leaveBtn = document.createElement("button");
-  leaveBtn.type = "button";
-  leaveBtn.id = "rest-leave-btn";
-  leaveBtn.textContent = "戻る（何もしない）";
-  const leaveHandler = () => callbacks.onLeaveRest();
-  leaveBtn.addEventListener("click", leaveHandler);
-  handlers.push({ btn: leaveBtn, handler: leaveHandler });
-  screen.appendChild(leaveBtn);
 
   container.appendChild(screen);
 

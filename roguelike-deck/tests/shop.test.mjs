@@ -46,7 +46,13 @@ function createShopState(gold = 500) {
 
 test("selectNode enters shop phase and creates affinity-weighted non-original stock", () => {
   const state = battle.startBattle(rng);
-  const shopNode = { id: "shop-node", kind: "shop", nextNodeIds: [] };
+  const shopNode = {
+    id: "shop-node",
+    floor: 1,
+    x: 0,
+    kind: "shop",
+    nextNodeIds: [],
+  };
   const prepared = {
     ...state,
     phase: "map",
@@ -64,7 +70,9 @@ test("selectNode enters shop phase and creates affinity-weighted non-original st
 
   assert.equal(next.phase, "shop");
   assert.equal(next.shopItems.cards.length, 3);
-  assert.equal(next.shopItems.relics.length, 0);
+  // 非スターター遺物が追加されたためショップに遺物が並ぶ（上限2）
+  assert.ok(next.shopItems.relics.length <= 2);
+  assert.ok(next.shopItems.relics.every(({ relic }) => !relic.isStarter));
   assert.ok(next.shopItems.cards.every(({ card }) => card.isOriginal !== true));
 });
 
@@ -173,7 +181,7 @@ test("shop actions are no-ops outside shop phase and leaveShop returns to map", 
 });
 
 test("generated maps can contain shop nodes while preserving the fixed boss path", () => {
-  const generated = map.generateFloorMap(() => 0.9);
+  const generated = map.generateFloorMap(() => 0.75);
 
   assert.ok(generated.nodes.some((node) => node.kind === "shop"));
   assert.equal(

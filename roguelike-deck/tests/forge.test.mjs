@@ -186,17 +186,17 @@ test("getConvertibleRelics excludes starter relics", () => {
   );
 });
 
-test("relic conversion result reports no candidates when only starter relics exist", () => {
+test("relic conversion result returns a non-starter relic from ALL_RELICS", () => {
   const normalA = { ...TEST_NORMAL_RELIC, id: "normal-a" };
   const normalB = { ...TEST_NORMAL_RELIC, id: "normal-b" };
 
-  assert.throws(
-    () => forge.getRelicConversionResult(normalA, normalB, rng),
-    /候補がありません/,
-  );
+  // normal + normal → uncommon。ALL_RELICS にアンコモン非スターターが存在するため成功する
+  const result = forge.getRelicConversionResult(normalA, normalB, rng);
+  assert.equal(result.isStarter, false);
+  assert.equal(result.rarity, "uncommon");
 });
 
-test("applyRelicConversion is a no-op when no conversion candidates exist", () => {
+test("applyRelicConversion consumes two relics and adds the converted relic", () => {
   const normalA = { ...TEST_NORMAL_RELIC, id: "normal-a" };
   const normalB = { ...TEST_NORMAL_RELIC, id: "normal-b" };
   const state = createForgeState();
@@ -212,14 +212,19 @@ test("applyRelicConversion is a no-op when no conversion candidates exist", () =
     rng,
   );
 
-  assert.equal(next, prepared);
+  // 2枚消費して1枚追加 → 合計2枚（古びた紋章 + 変換結果）
+  assert.equal(next.relics.length, 2);
+  assert.ok(next.relics.some((r) => r.id === relics.ANCIENT_EMBLEM.id));
+  assert.ok(next.relics.every((r) => r.id !== normalA.id));
+  assert.ok(next.relics.every((r) => r.id !== normalB.id));
 });
 
 test("only starter relics leave relic conversion unavailable", () => {
   const state = createForgeState();
+  const starterRelicsOnly = relics.ALL_RELICS.filter((r) => r.isStarter);
   const prepared = {
     ...state,
-    relics: relics.ALL_RELICS,
+    relics: starterRelicsOnly,
   };
 
   assert.deepEqual(forge.getConvertibleRelics(prepared), []);
@@ -251,12 +256,7 @@ test("applyRelicConversion rejects starter, duplicate, and missing materials", (
     prepared,
   );
   assert.equal(
-    forge.applyRelicConversion(
-      prepared,
-      TEST_NORMAL_RELIC.id,
-      "missing",
-      rng,
-    ),
+    forge.applyRelicConversion(prepared, TEST_NORMAL_RELIC.id, "missing", rng),
     prepared,
   );
 });
@@ -265,6 +265,8 @@ test("selectNode enters forge phase and preserves the run deck", () => {
   const state = battle.startBattle(rng);
   const forgeNode = {
     id: "forge-node",
+    floor: 1,
+    x: 0,
     kind: "forge",
     nextNodeIds: [],
   };

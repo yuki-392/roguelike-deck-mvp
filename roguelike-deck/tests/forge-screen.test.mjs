@@ -145,6 +145,7 @@ test("card forge mode reports when no empty card slots exist", () => {
   const state = {
     ...createForgeState(),
     player: { ...createForgeState().player, deck: cards.createStarterDeck() },
+    relics: [TEST_RELIC_A, TEST_RELIC_B],
   };
   const container = new FakeElement("div");
 
@@ -154,6 +155,7 @@ test("card forge mode reports when no empty card slots exist", () => {
       onForgeCard: () => {},
       onConvertRelics: () => null,
       onCompleteForge: () => {},
+      onLeaveForge: () => {},
     },
     state,
     () => 0,
@@ -164,6 +166,31 @@ test("card forge mode reports when no empty card slots exist", () => {
     findById(container, "forge-card-list").textContent,
     /鍛冶できるカードがありません/,
   );
+});
+
+test("forge screen leaves automatically when no forge action is available", () => {
+  const state = {
+    ...createForgeState(),
+    player: { ...createForgeState().player, deck: cards.createStarterDeck() },
+    relics: [relics.ANCIENT_EMBLEM],
+  };
+  const container = new FakeElement("div");
+  const calls = [];
+
+  screenModule.renderForgeScreen(
+    container,
+    {
+      onForgeCard: () => {},
+      onConvertRelics: () => null,
+      onCompleteForge: () => {},
+      onLeaveForge: () => calls.push("leave"),
+    },
+    state,
+    () => 0,
+  );
+
+  assert.deepEqual(calls, ["leave"]);
+  assert.equal(findById(container, "forge-leave-btn"), null);
 });
 
 test("relic conversion requires two materials and displays the converted relic", () => {
